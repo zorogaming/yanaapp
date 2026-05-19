@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "117405347170",
+    "project_id": "yanaworldwide-store",
+    "storage_bucket": "yanaworldwide-store.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:117405347170:android:82dd3fc1df6f4c411ed03b",
+        "android_client_info": {
+          "package_name": "com.yanaworldwide.shop"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-VROnGvqw5k1kpi_4baOsOazuAjN-HsA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
