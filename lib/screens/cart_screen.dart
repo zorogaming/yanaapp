@@ -9,7 +9,9 @@ import 'checkout_screen.dart';
 import 'wishlist_screen.dart';
 
 class CartScreen extends StatelessWidget {
-  const CartScreen({super.key});
+  const CartScreen({super.key, this.onContinueShopping});
+
+  final VoidCallback? onContinueShopping;
 
   @override
   Widget build(BuildContext context) {
@@ -94,22 +96,15 @@ class CartScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 14),
                     OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const WishlistScreen(),
-                          ),
-                        );
-                      },
-                      icon: Icon(
-                        Icons.favorite_rounded,
-                        color: palette.accent,
-                      ),
+                      onPressed: onContinueShopping ??
+                          () {
+                            if (Navigator.canPop(context)) {
+                              Navigator.pop(context);
+                            }
+                          },
+                      icon: Icon(Icons.storefront_rounded, color: palette.accent),
                       label: Text(
-                        wishlist.items.isEmpty
-                            ? 'Open Wishlist'
-                            : 'Open Wishlist (${wishlist.items.length})',
+                        'Continue Shopping',
                         style: TextStyle(
                           color: palette.textPrimary,
                           fontWeight: FontWeight.w700,
@@ -501,6 +496,38 @@ class CartScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: palette.textPrimary,
+                          side: BorderSide(color: palette.border),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        onPressed: onContinueShopping ??
+                            () {
+                              if (Navigator.canPop(context)) {
+                                Navigator.pop(context);
+                              }
+                            },
+                        icon: Icon(
+                          Icons.storefront_rounded,
+                          color: palette.accent,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          "Continue Shopping",
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(

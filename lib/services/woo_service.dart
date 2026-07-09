@@ -51,9 +51,7 @@ class WooService {
   };
 
   static double partialAdvanceRate(double totalAmount) {
-    if (totalAmount > 10000) return 0.20;
-    if (totalAmount > 5000) return 0.15;
-    return 0.08;
+    return 0.20;
   }
 
   static double partialAdvanceAmount(double totalAmount) {

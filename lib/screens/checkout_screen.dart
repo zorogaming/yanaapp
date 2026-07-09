@@ -938,6 +938,54 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
+  Future<void> _removeSavedAddress(Map<String, String> entry) async {
+    final removeKey = _addressEntryKey(entry);
+    final remaining = _savedAddresses
+        .where((item) => _addressEntryKey(item) != removeKey)
+        .toList(growable: false);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _savedAddressesKey,
+      remaining.map((e) => jsonEncode(e)).toList(growable: false),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _savedAddresses = remaining;
+      if (_selectedSavedAddressKey == removeKey) {
+        if (remaining.isNotEmpty) {
+          final nextEntry = remaining.first;
+          firstNameController.text = nextEntry['first_name'] ?? '';
+          lastNameController.text = nextEntry['last_name'] ?? '';
+          addressController.text = nextEntry['address_1'] ?? '';
+          apartmentController.text = nextEntry['address_2'] ?? '';
+          cityController.text = nextEntry['city'] ?? '';
+          pinController.text = nextEntry['postcode'] ?? '';
+          selectedCountryCode = (nextEntry['country_code'] ?? 'IN').isEmpty
+              ? 'IN'
+              : (nextEntry['country_code'] ?? 'IN');
+          selectedCountryName = (nextEntry['country_name'] ?? 'India').isEmpty
+              ? 'India'
+              : (nextEntry['country_name'] ?? 'India');
+          selectedStateName = nextEntry['state'] ?? '';
+          completePhoneNumber = nextEntry['phone'] ?? '';
+          initialPhoneNumber = _extractPhoneForInput(
+            completePhoneNumber,
+            selectedCountryCode,
+          );
+          _selectedSavedAddressKey = _addressEntryKey(nextEntry);
+          _isAddingNewAddress = false;
+        } else {
+          _selectedSavedAddressKey = '';
+          _isAddingNewAddress = true;
+        }
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved address removed')),
+    );
+  }
+
   void _applySavedAddress(Map<String, String> entry) {
     setState(() {
       firstNameController.text = entry['first_name'] ?? '';
@@ -1077,12 +1125,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                     ),
                                   ],
                                 ),
-                              ),
-                              const SizedBox(width: 10),
-                              Icon(
-                                isSelected
-                                    ? Icons.radio_button_checked
-                                    : Icons.radio_button_off,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          IconButton(
+                                            tooltip: 'Remove address',
+                                            onPressed: () {
+                                              Navigator.pop(sheetContext);
+                                              _removeSavedAddress(entry);
+                                            },
+                                            icon: Icon(
+                                              Icons.delete_outline,
+                                              color: palette.textMuted,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 2),
+                                          Icon(
+                                            isSelected
+                                                ? Icons.radio_button_checked
+                                                : Icons.radio_button_off,
                                 color: isSelected ? palette.accent : palette.textMuted,
                               ),
                             ],
@@ -2781,12 +2841,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                                ),
                                              ],
                                            ),
-                                         ),
-                                         const SizedBox(width: 10),
-                                         Icon(
-                                           isSelected
-                                               ? Icons.radio_button_checked
-                                               : Icons.radio_button_off,
+                              ),
+                              const SizedBox(width: 10),
+                              IconButton(
+                                tooltip: 'Remove address',
+                                onPressed: () => _removeSavedAddress(entry),
+                                icon: Icon(
+                                  Icons.delete_outline,
+                                  color: palette.textMuted,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              Icon(
+                                isSelected
+                                    ? Icons.radio_button_checked
+                                    : Icons.radio_button_off,
                                            color: isSelected
                                                ? palette.accent
                                                : palette.textMuted,

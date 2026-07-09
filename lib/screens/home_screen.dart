@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:provider/provider.dart';
 import 'package:marquee/marquee.dart';
 import 'package:http/http.dart' as http;
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -20,6 +22,7 @@ import 'cart_screen.dart';
 import '../models/cart_item.dart';
 import '../services/auth_service.dart';
 import '../services/analytics_service.dart';
+import '../services/recently_viewed_service.dart';
 import 'login_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'ai_brain_screen.dart';
@@ -34,6 +37,7 @@ import 'bike_garage_screen.dart';
 import 'motorcycle_service_station_screen.dart';
 import 'sale_products_screen.dart';
 import 'tracking_webview_screen.dart';
+import 'top_category_detail_screen.dart';
 
 // ✅ STEP 2: Imported SignupScreen
 import 'signup_screen.dart';
@@ -77,6 +81,18 @@ class _HomeCategorySectionData {
 
   final Map<String, List> groupedCategories;
   final List<dynamic> topBrandCategories;
+}
+
+class _HomeTopNavItem {
+  const _HomeTopNavItem({
+    required this.title,
+    required this.key,
+    required this.icon,
+  });
+
+  final String title;
+  final String key;
+  final IconData icon;
 }
 
 class HomeBannerMediaCard extends StatefulWidget {
@@ -265,7 +281,12 @@ class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.recentlyViewedRefresh,
+  });
+
+  final ValueListenable<int>? recentlyViewedRefresh;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -333,9 +354,14 @@ class _HomeScreenState extends State<HomeScreen>
   bool _dailySaleEnabled = true;
   bool _bigDaysSaleEnabled = true;
   bool _quickAccessExpanded = false;
+  String _selectedTopCategoryKey = "shop_by_bike";
+  double _homeChromeCollapseProgress = 0;
+  List<Product> _recentlyViewedProducts = const <Product>[];
   final GlobalKey _quickAccessRailKey = GlobalKey();
   final GlobalKey _cartIconKey = GlobalKey();
   final GlobalKey _searchBoxKey = GlobalKey();
+  final GlobalKey _selectMotorcycleSectionKey = GlobalKey();
+  final GlobalKey _topBrandsSectionKey = GlobalKey();
 
   Timer? _debounce;
   Timer? _internetRetryTimer;
@@ -367,11 +393,14 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1450),
     );
+    _scrollController.addListener(_handleHomeScroll);
+    widget.recentlyViewedRefresh?.addListener(_handleRecentlyViewedRefresh);
     AnalyticsService.instance.logScreen("home");
     _categorySectionFuture = _loadHomeCategorySection();
     _bikeGarageFuture = _loadBikeGarageData();
     _authTokenFuture = AuthService().getToken();
     _loadSaleAvailability();
+    _loadRecentlyViewedProducts();
     loadOffer();
     _loadBannerImages();
     _loadBannerVideos();
@@ -385,10 +414,44 @@ class _HomeScreenState extends State<HomeScreen>
     _refreshInternetStatus();
   }
 
+  Future<void> _loadRecentlyViewedProducts() async {
+    final items = await RecentlyViewedService.instance.load();
+    if (!mounted) return;
+    setState(() {
+      _recentlyViewedProducts = items;
+    });
+  }
+
+  void _handleRecentlyViewedRefresh() {
+    _loadRecentlyViewedProducts();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.recentlyViewedRefresh != widget.recentlyViewedRefresh) {
+      oldWidget.recentlyViewedRefresh?.removeListener(
+        _handleRecentlyViewedRefresh,
+      );
+      widget.recentlyViewedRefresh?.addListener(_handleRecentlyViewedRefresh);
+      _loadRecentlyViewedProducts();
+    }
+  }
+
+  void _handleHomeScroll() {
+    final nextProgress = (_scrollController.offset / 28).clamp(0.0, 1.0);
+    if ((nextProgress - _homeChromeCollapseProgress).abs() < 0.02) return;
+    if (!mounted) return;
+    setState(() {
+      _homeChromeCollapseProgress = nextProgress;
+    });
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _refreshInternetStatus();
+      _loadRecentlyViewedProducts();
     }
   }
 
@@ -400,6 +463,53 @@ class _HomeScreenState extends State<HomeScreen>
     return _HomeCategorySectionData(
       groupedCategories: results[0] as Map<String, List>,
       topBrandCategories: results[1] as List<dynamic>,
+    );
+  }
+
+  List<_HomeTopNavItem> _defaultTopCategoryNavigation() {
+    return const [
+      _HomeTopNavItem(
+        title: "Shop By Bike",
+        key: "shop_by_bike",
+        icon: Icons.motorcycle_rounded,
+      ),
+      _HomeTopNavItem(
+        title: "Motorcycle Accessories",
+        key: "motorcycle_accessories",
+        icon: Icons.handyman_rounded,
+      ),
+      _HomeTopNavItem(
+        title: "Riding Gears",
+        key: "riding_gears",
+        icon: Icons.sports_motorsports_rounded,
+      ),
+      _HomeTopNavItem(
+        title: "Luggage & Touring",
+        key: "luggage_touring",
+        icon: Icons.luggage_rounded,
+      ),
+      _HomeTopNavItem(
+        title: "Helmets and Accessories",
+        key: "helmets_accessories",
+        icon: Icons.health_and_safety_rounded,
+      ),
+      _HomeTopNavItem(
+        title: "Lubricants",
+        key: "combos",
+        icon: Icons.inventory_2_rounded,
+      ),
+      _HomeTopNavItem(
+        title: "Top Brands",
+        key: "events",
+        icon: Icons.workspace_premium_rounded,
+      ),
+    ];
+  }
+
+  _HomeTopNavItem _selectedTopCategoryItem() {
+    return _defaultTopCategoryNavigation().firstWhere(
+      (item) => item.key == _selectedTopCategoryKey,
+      orElse: () => _defaultTopCategoryNavigation().first,
     );
   }
 
@@ -1032,6 +1142,18 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _openBarcodeSearchOption() async {
+    final code = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const _BarcodeScannerScreen()),
+    );
+    final scannedCode = code?.trim();
+    if (!mounted || scannedCode == null || scannedCode.isEmpty) return;
+    searchController.text = scannedCode;
+    _handleSearchChanged(scannedCode);
+    _goToSearch();
+  }
+
   void _handleSearchChanged(String value) {
     final trimmed = value.trim();
     _debounce?.cancel();
@@ -1089,81 +1211,85 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (context, child) {
         final hasQuery = currentSearch.trim().isNotEmpty;
         final t = Curves.easeInOutCubic.transform(_searchCtaController.value);
-        final scale = hasQuery ? 1 + (0.10 * t) : 1.0;
+        final scale = hasQuery ? 1 + (0.07 * t) : 1.0;
         final shift = hasQuery ? 1 + (4 * t) : 0.0;
         final glowOpacity = hasQuery ? 0.20 + (0.16 * t) : 0.0;
         final ringOpacity = hasQuery ? 0.22 - (0.10 * t) : 0.0;
 
-        return Transform.translate(
-          offset: Offset(shift, 0),
-          child: Transform.scale(
-            scale: scale,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (hasQuery)
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: palette.accent.withOpacity(ringOpacity),
-                        width: 2,
+        return SizedBox(
+          width: 52,
+          height: 46,
+          child: Transform.translate(
+            offset: Offset(shift - 6, 0),
+            child: Transform.scale(
+              scale: scale,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                    if (hasQuery)
+                      Container(
+                        width: 34,
+                        height: 34,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: palette.accent.withOpacity(ringOpacity),
+                          width: 2,
+                        ),
                       ),
                     ),
-                  ),
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: hasQuery
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: hasQuery
+                            ? [
+                                palette.accentStrong,
+                                palette.accent,
+                                palette.highlight,
+                              ]
+                            : [
+                                palette.accent,
+                                palette.accent,
+                              ],
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: hasQuery
                           ? [
-                              palette.accentStrong,
-                              palette.accent,
-                              palette.highlight,
+                              BoxShadow(
+                                color: palette.accent.withOpacity(glowOpacity),
+                                blurRadius: 18,
+                                spreadRadius: 1.2,
+                                offset: const Offset(0, 5),
+                              ),
                             ]
-                          : [
-                              palette.accent,
-                              palette.accent,
-                            ],
+                          : const [],
                     ),
-                    borderRadius: BorderRadius.circular(11),
-                    boxShadow: hasQuery
-                        ? [
-                            BoxShadow(
-                              color: palette.accent.withOpacity(glowOpacity),
-                              blurRadius: 18,
-                              spreadRadius: 1.2,
-                              offset: const Offset(0, 5),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (hasQuery)
+                          Opacity(
+                            opacity: 0.14 + (0.18 * t),
+                            child: Icon(
+                              Icons.arrow_forward_rounded,
+                              color: palette.onAccent,
+                                size: 19,
                             ),
-                          ]
-                        : const [],
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      if (hasQuery)
-                        Opacity(
-                          opacity: 0.14 + (0.18 * t),
-                          child: Icon(
+                          ),
+                          Icon(
                             Icons.arrow_forward_rounded,
                             color: palette.onAccent,
-                            size: 22,
+                          size: 15,
                           ),
-                        ),
-                      Icon(
-                        Icons.arrow_forward_rounded,
-                        color: palette.onAccent,
-                        size: 16,
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -1493,7 +1619,7 @@ class _HomeScreenState extends State<HomeScreen>
                             MaterialPageRoute(
                               builder: (_) => ProductDetailScreen(product: product),
                             ),
-                          );
+                          ).then((_) => _loadRecentlyViewedProducts());
                         },
                         child: Container(
                           width: 150,
@@ -1685,6 +1811,263 @@ class _HomeScreenState extends State<HomeScreen>
         .trim();
   }
 
+  void _handleTopCategoryTap(_HomeTopNavItem item) {
+    if (_selectedTopCategoryKey != item.key) {
+      setState(() {
+        _selectedTopCategoryKey = item.key;
+      });
+    }
+    if (item.key == "shop_by_bike") {
+      _scrollToSelectMotorcycleSection();
+    } else if (item.key == "events") {
+      _scrollToTopBrandsSection();
+    }
+  }
+
+  Future<void> _scrollToSelectMotorcycleSection() async {
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      }
+      if (!mounted || !_scrollController.hasClients) return;
+      final targetContext = _selectMotorcycleSectionKey.currentContext;
+      if (targetContext == null) continue;
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 520),
+        curve: Curves.easeOutCubic,
+        alignment: 0.12,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+      );
+      return;
+    }
+  }
+
+  Future<void> _scrollToTopBrandsSection() async {
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      }
+      if (!mounted || !_scrollController.hasClients) return;
+      final targetContext = _topBrandsSectionKey.currentContext;
+      if (targetContext == null) continue;
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 520),
+        curve: Curves.easeOutCubic,
+        alignment: 0.12,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+      );
+      return;
+    }
+  }
+
+  void _scrollToTop() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 520),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _buildTopCategoryNavigation(List<_HomeTopNavItem> items) {
+    final palette = context.appPalette;
+    if (items.isEmpty) return const SizedBox.shrink();
+    final collapse = Curves.easeOutCubic.transform(_homeChromeCollapseProgress);
+    final expandedHeight = 70.0;
+    final compactHeight = 50.0;
+    final navHeight = lerpDouble(expandedHeight, compactHeight, collapse)!;
+    final itemWidth = lerpDouble(88, 112, collapse)!;
+    final itemContentHeight = lerpDouble(56, 38, collapse)!;
+    final iconOpacity = (1 - collapse).clamp(0.0, 1.0);
+    final iconSlotHeight = lerpDouble(30, 0, collapse)!;
+    final textFontSize = lerpDouble(8.5, 10.5, collapse)!;
+    final textHeight = lerpDouble(13, 18, collapse)!;
+    final compactTextColor = Color.lerp(
+      palette.textPrimary.withOpacity(0.86),
+      Colors.white.withOpacity(0.74),
+      collapse,
+    )!;
+    final compactSelectedTextColor = Color.lerp(
+      palette.accent,
+      Colors.white.withOpacity(0.96),
+      collapse,
+    )!;
+    final compactSurfaceColor = Color.lerp(
+      palette.surfaceStrong.withOpacity(0.22),
+      palette.surfaceStrong.withOpacity(0.72),
+      collapse,
+    )!;
+    final compactBorderColor = Color.lerp(
+      palette.accent.withOpacity(0.28),
+      palette.accent.withOpacity(0.30),
+      collapse,
+    )!;
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+      child: Container(
+        height: navHeight,
+        margin: EdgeInsets.fromLTRB(
+          0,
+          lerpDouble(0, 2, collapse)!,
+          0,
+          0,
+        ),
+        decoration: BoxDecoration(
+          color: compactSurfaceColor,
+          border: Border(
+            top: BorderSide(color: compactBorderColor),
+            bottom: BorderSide(color: compactBorderColor),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(0),
+          child: Stack(
+            children: [
+              Positioned(
+                left: lerpDouble(20, 18, collapse)!,
+                right: lerpDouble(20, 18, collapse)!,
+                bottom: 1,
+                child: Container(
+                  height: 1,
+                  color: palette.border.withOpacity(0.38),
+                ),
+              ),
+              ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.fromLTRB(
+                  lerpDouble(10, 12, collapse)!,
+                  0,
+                  lerpDouble(10, 12, collapse)!,
+                  0,
+                ),
+                itemCount: items.length,
+                separatorBuilder: (_, __) =>
+                    SizedBox(width: lerpDouble(7, 8, collapse)!),
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final isSelected = item.key == _selectedTopCategoryKey;
+                  final title = item.title;
+                  return SizedBox(
+                    width: itemWidth,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      curve: Curves.easeOutCubic,
+                      margin: EdgeInsets.symmetric(
+                        vertical: lerpDouble(4, 3, collapse)!,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? palette.surface.withOpacity(0.28)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(18),
+                        child: InkWell(
+                          onTap: () => _handleTopCategoryTap(item),
+                          borderRadius: BorderRadius.circular(18),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: lerpDouble(5, 8, collapse)!,
+                            ),
+                          child: SizedBox(
+                            height: itemContentHeight,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                ClipRect(
+                                  child: SizedBox(
+                                    height: iconSlotHeight,
+                                    child: Opacity(
+                                      opacity: iconOpacity,
+                                      child: Center(
+                                        child: Container(
+                                          width: 30,
+                                          height: 30,
+                                          decoration: BoxDecoration(
+                                            color: isSelected
+                                                ? palette.accent
+                                                : palette.surfaceStrong,
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: isSelected
+                                                  ? palette.accent
+                                                  : palette.border,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            item.icon,
+                                            color: isSelected
+                                                ? palette.onAccent
+                                                : palette.textPrimary,
+                                            size: 17,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  height: lerpDouble(3, 0, collapse)!,
+                                ),
+                                SizedBox(
+                                  height: textHeight,
+                                  child: Text(
+                                    title,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? compactSelectedTextColor
+                                          : compactTextColor,
+                                      fontSize: textFontSize,
+                                      height: 1.05,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w900
+                                          : FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  height: lerpDouble(3, 2, collapse)!,
+                                ),
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 160),
+                                  curve: Curves.easeOutCubic,
+                                  width: isSelected
+                                      ? lerpDouble(42, 58, collapse)!
+                                      : 14,
+                                  height: isSelected ? 4 : 2,
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? palette.accent
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
   Widget _buildCategoryScroller(List<dynamic> categories) {
     final palette = context.appPalette;
     final isWhiteTheme = palette.id == AppThemes.whitePalette.id;
@@ -1814,6 +2197,241 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildRecentlyViewedSection() {
+    final palette = context.appPalette;
+    final items = _recentlyViewedProducts.take(10).toList();
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+          child: Row(
+            children: [
+              Icon(Icons.history_rounded, color: palette.accent, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                "Recently Viewed",
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  _scrollController.animateTo(
+                    0,
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOutCubic,
+                  );
+                },
+                child: Text(
+                  "Continue Shopping",
+                  style: TextStyle(
+                    color: palette.accent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 164,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final product = items[index];
+              return SizedBox(
+                width: 120,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ProductDetailScreen(product: product),
+                        ),
+                      ).then((_) => _loadRecentlyViewedProducts());
+                    },
+                    borderRadius: BorderRadius.circular(14),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        color: palette.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: palette.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(14),
+                            ),
+                            child: SizedBox(
+                              height: 86,
+                              width: double.infinity,
+                              child: AppCachedImage(
+                                url: product.image,
+                                fit: BoxFit.contain,
+                                memCacheWidth: _homeProductImageCacheWidth,
+                                maxWidthDiskCache: _homeProductImageCacheWidth,
+                                filterQuality: FilterQuality.low,
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(9, 8, 9, 0),
+                            child: Text(
+                              product.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: palette.textPrimary,
+                                fontSize: 11,
+                                height: 1.12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(9, 5, 9, 0),
+                            child: Text(
+                              "₹${product.price}",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: palette.accent,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTopBrandsAutoCarousel(List<dynamic> categories) {
+    if (categories.isEmpty) return const SizedBox.shrink();
+    final palette = context.appPalette;
+    final isWhiteTheme = palette.id == AppThemes.whitePalette.id;
+    return SizedBox(
+      height: 136,
+      child: CarouselSlider.builder(
+        itemCount: categories.length,
+        options: CarouselOptions(
+          height: 126,
+          viewportFraction: 0.25,
+          autoPlay: categories.length > 4,
+          autoPlayInterval: const Duration(seconds: 2),
+          autoPlayAnimationDuration: const Duration(milliseconds: 650),
+          autoPlayCurve: Curves.easeOutCubic,
+          enlargeCenterPage: false,
+          padEnds: false,
+          enableInfiniteScroll: categories.length > 4,
+        ),
+        itemBuilder: (context, index, realIndex) {
+          final cat = categories[index] is Map
+              ? Map<String, dynamic>.from(categories[index] as Map)
+              : <String, dynamic>{};
+          return Padding(
+            padding: EdgeInsets.only(
+              left: index == 0 ? 16 : 6,
+              right: index == categories.length - 1 ? 16 : 6,
+            ),
+            child: GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProductsScreen(
+                      categoryId: cat["id"],
+                      title: cat["name"],
+                    ),
+                  ),
+                );
+              },
+              child: Column(
+                children: [
+                  Container(
+                    height: 78,
+                    width: 78,
+                    decoration: BoxDecoration(
+                      color: isWhiteTheme ? palette.surface : Colors.white,
+                      borderRadius: BorderRadius.circular(39),
+                      border: Border.all(
+                        color: isWhiteTheme ? palette.border : palette.accent,
+                        width: 2.4,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(
+                            Theme.of(context).brightness == Brightness.light
+                                ? 0.05
+                                : 0.18,
+                          ),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(10),
+                    child: cat["image"] != null && cat["image"]["src"] != null
+                        ? AppCachedImage(
+                            url: (cat["image"]["src"] ?? "").toString(),
+                            fit: BoxFit.contain,
+                            isCircular: true,
+                            memCacheWidth: _homeCategoryImageCacheWidth,
+                            maxWidthDiskCache: _homeCategoryImageCacheWidth,
+                            filterQuality: FilterQuality.low,
+                          )
+                        : Image.asset(
+                            "assets/icon/Blank.jpg",
+                            fit: BoxFit.contain,
+                          ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: 28,
+                    child: Text(
+                      (cat["name"] ?? "").toString(),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        height: 1.15,
+                        color: palette.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildCategoryScrollerSkeleton() {
     return SizedBox(
       height: 130,
@@ -1915,9 +2533,11 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.recentlyViewedRefresh?.removeListener(_handleRecentlyViewedRefresh);
     _titleAnimController.dispose();
     _cartPulseController.dispose();
     _searchCtaController.dispose();
+    _scrollController.removeListener(_handleHomeScroll);
     _scrollController.dispose();
     searchController.dispose();
     _debounce?.cancel();
@@ -2154,24 +2774,78 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {}
   }
 
-  List<Color> _promoCardColors(
-    AppThemePalette palette, {
-    required List<Color> defaultColors,
+  List<Color> _themeSaleCardColors(AppThemePalette palette, int tone) {
+    final start = switch (tone % 4) {
+      0 => palette.accentStrong,
+      1 => Color.lerp(palette.accentStrong, palette.highlight, 0.25)!,
+      2 => palette.accent,
+      _ => Color.lerp(palette.accent, palette.success, 0.25)!,
+    };
+    final end = switch (tone % 4) {
+      0 => palette.highlight,
+      1 => palette.accent,
+      2 => Color.lerp(palette.highlight, palette.accent, 0.35)!,
+      _ => palette.highlight,
+    };
+    return <Color>[start, end];
+  }
+
+  Widget _buildScrollCollapsingChild({
+    required Widget child,
+    required double expandedHeight,
+    double translateY = -18,
   }) {
-    if (palette.id == AppThemes.whitePalette.id) {
-      return <Color>[palette.accent, palette.highlight];
-    }
-    return defaultColors;
+    final collapse = Curves.easeOutCubic.transform(_homeChromeCollapseProgress);
+    final visible = (1 - collapse).clamp(0.0, 1.0);
+    if (visible <= 0) return const SizedBox.shrink();
+
+    return ClipRect(
+      child: Align(
+        alignment: Alignment.topCenter,
+        heightFactor: visible,
+        child: Opacity(
+          opacity: visible,
+          child: SizedBox(
+            height: expandedHeight,
+            child: Transform.translate(
+              offset: Offset(0, translateY * collapse),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    final collapse = Curves.easeOutCubic.transform(_homeChromeCollapseProgress);
+    final topInset = MediaQuery.of(context).padding.top;
+    const logoRowHeight = 64.0;
+    const commerceStripHeight = 32.0;
+    const commerceToCategoryGap = 6.0;
+    final headerTopPadding = lerpDouble(8, 4, collapse)!;
+    final headerGap = lerpDouble(7, 0, collapse)!;
+    final topCategoryNavHeight =
+        lerpDouble(70, 50, collapse)! + lerpDouble(0, 2, collapse)!;
+    const overflowGuard = 6.0;
+    final appBarHeight =
+        headerTopPadding +
+        (logoRowHeight * (1 - collapse)) +
+        headerGap +
+        lerpDouble(48, 46, collapse)! +
+        headerGap +
+        (commerceStripHeight * (1 - collapse)) +
+        (commerceToCategoryGap * (1 - collapse)) +
+        topCategoryNavHeight +
+        overflowGuard;
+    final searchHeight = lerpDouble(48, 46, collapse)!;
 
     return Scaffold(
       backgroundColor: palette.background,
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(208),
+        preferredSize: Size.fromHeight(appBarHeight),
         child: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -2181,19 +2855,26 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
             padding: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + 8,
+              top: topInset + lerpDouble(8, 4, collapse)!,
             left: 16,
             right: 16,
           ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.topCenter,
+              maxHeight: double.infinity,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
+              _buildScrollCollapsingChild(
+                expandedHeight: logoRowHeight,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
-                      vertical: 14,
+                      vertical: 12,
                     ),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(22),
@@ -2214,7 +2895,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       child: Image.asset(
                         "assets/icon/icon.png",
-                        height: 30,
+                        height: 28,
                         fit: BoxFit.contain,
                       ),
                     ),
@@ -2485,12 +3166,14 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                   ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: headerGap),
               Container(
                 key: _searchBoxKey,
-                height: 52,
+                height: searchHeight,
+                clipBehavior: Clip.hardEdge,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: palette.border),
@@ -2517,19 +3200,89 @@ class _HomeScreenState extends State<HomeScreen>
                       color: palette.accent,
                       size: 20,
                     ),
-                    suffixIcon: IconButton(
-                      icon: _buildAnimatedSearchArrow(palette),
-                      onPressed: _goToSearch,
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 42,
+                      minHeight: 40,
+                      maxHeight: 42,
+                    ),
+                    suffixIcon: ClipRect(
+                      child: SizedBox(
+                        width: 84,
+                        height: 42,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 3),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 30,
+                                height: 36,
+                                child: Tooltip(
+                                  message: "Barcode scanner",
+                                  child: InkWell(
+                                    onTap: _openBarcodeSearchOption,
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Center(
+                                      child: Container(
+                                        width: 28,
+                                        height: 28,
+                                        decoration: BoxDecoration(
+                                          color: palette.accent.withOpacity(0.10),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(
+                                            color: palette.accent.withOpacity(0.22),
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          Icons.qr_code_scanner_rounded,
+                                          color: palette.accent,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 48,
+                                height: 42,
+                                child: InkWell(
+                                  onTap: _goToSearch,
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Center(
+                                    child: _buildAnimatedSearchArrow(palette),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 84,
+                      minHeight: 40,
+                      maxWidth: 84,
+                      maxHeight: 44,
                     ),
                     border: InputBorder.none,
                     isDense: true, // VERY IMPORTANT
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              _buildCommerceHeroStrip(palette),
-            ],
+              SizedBox(height: headerGap),
+              _buildScrollCollapsingChild(
+                expandedHeight: commerceStripHeight,
+                translateY: -12,
+                child: _buildCommerceHeroStrip(palette),
+              ),
+              SizedBox(height: commerceToCategoryGap * (1 - collapse)),
+              _buildTopCategoryNavigation(_defaultTopCategoryNavigation()),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -2568,33 +3321,54 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
       // ✅ WHATSAPP BUTTON (Correct Position)
-      floatingActionButton: FloatingActionButton(
-        onPressed: openWhatsApp,
-        backgroundColor: palette.accent,
-        foregroundColor: palette.onAccent,
-        shape: const CircleBorder(),
-        child: SizedBox(
-          width: 26,
-          height: 26,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Icon(
-                Icons.chat_bubble_rounded,
-                size: 24,
-                color: palette.onAccent,
-              ),
-              Positioned(
-                top: 7,
-                child: Icon(
-                  Icons.call_rounded,
-                  size: 12,
-                  color: palette.accent,
+      floatingActionButton: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (child, animation) {
+          return ScaleTransition(
+            scale: animation,
+            child: FadeTransition(opacity: animation, child: child),
+          );
+        },
+        child: _homeChromeCollapseProgress > 0.08
+            ? FloatingActionButton(
+                key: const ValueKey("back_to_top_fab"),
+                onPressed: _scrollToTop,
+                backgroundColor: palette.surfaceStrong,
+                foregroundColor: palette.accent,
+                shape: const CircleBorder(),
+                child: const Icon(Icons.keyboard_arrow_up_rounded, size: 30),
+              )
+            : FloatingActionButton(
+                key: const ValueKey("whatsapp_fab"),
+                onPressed: openWhatsApp,
+                backgroundColor: palette.accent,
+                foregroundColor: palette.onAccent,
+                shape: const CircleBorder(),
+                child: SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(
+                        Icons.chat_bubble_rounded,
+                        size: 24,
+                        color: palette.onAccent,
+                      ),
+                      Positioned(
+                        top: 7,
+                        child: Icon(
+                          Icons.call_rounded,
+                          size: 12,
+                          color: palette.accent,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -2612,12 +3386,28 @@ class _HomeScreenState extends State<HomeScreen>
       controller: _scrollController,
       cacheExtent: 900,
       slivers: [
+        if (_selectedTopCategoryKey == "motorcycle_accessories" ||
+            _selectedTopCategoryKey == "riding_gears" ||
+            _selectedTopCategoryKey == "luggage_touring" ||
+            _selectedTopCategoryKey == "helmets_accessories" ||
+            _selectedTopCategoryKey == "combos")
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: TopCategoryInlineSection(
+                categoryKey: _selectedTopCategoryItem().key,
+                title: _selectedTopCategoryItem().title,
+                icon: _selectedTopCategoryItem().icon,
+              ),
+            ),
+          ),
+
         /// 1. Top Section (Banner)
         SliverToBoxAdapter(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Container(
@@ -2840,10 +3630,12 @@ class _HomeScreenState extends State<HomeScreen>
 
                   final sectionWidgets = <Widget>[];
                   sectionWidgets.add(_buildSaleButtons());
+                  sectionWidgets.add(_buildRecentlyViewedSection());
 
                   if (topBrandCategories.isNotEmpty) {
                     sectionWidgets.add(
                       Padding(
+                        key: _topBrandsSectionKey,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 8,
@@ -2855,12 +3647,13 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     );
                     sectionWidgets.add(
-                      _buildCategoryScroller(topBrandCategories),
+                      _buildTopBrandsAutoCarousel(topBrandCategories),
                     );
                   }
 
                   sectionWidgets.add(
                     Padding(
+                      key: _selectMotorcycleSectionKey,
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
                       child: Center(
                         child: _buildAnimatedHeading(
@@ -2873,9 +3666,7 @@ class _HomeScreenState extends State<HomeScreen>
 
                   sectionWidgets.addAll(
                     groupedData.entries.map((entry) {
-                      final visible = entry.value.where((raw) {
-                        return raw is Map;
-                      }).toList();
+                      final visible = entry.value.whereType<Map>().toList();
 
                       if (visible.isEmpty) {
                         return const SizedBox();
@@ -2907,22 +3698,6 @@ class _HomeScreenState extends State<HomeScreen>
                   return Column(children: sectionWidgets);
                 },
               ),
-              const SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildAIBrainCard(),
-              ),
-              const SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildRideCommunityCard(),
-              ),
-              const SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildRidingEventsCard(),
-              ),
-              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -3176,103 +3951,100 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildSaleButtons() {
+    final palette = context.appPalette;
+    final saleCards = <Widget>[
+      _buildSaleButton(
+        title: "Daily Sale",
+        subtitle: _dailySaleEnabled ? "Today picks" : "Currently disabled",
+        icon: Icons.bolt_rounded,
+        colors: _themeSaleCardColors(palette, 0),
+        isEnabled: _dailySaleEnabled,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const SaleProductsScreen(
+                collectionKey: "daily_sale",
+                title: "Daily Sale",
+              ),
+            ),
+          );
+        },
+      ),
+      _buildSaleButton(
+        title: "Big Days Sale",
+        subtitle: _bigDaysSaleEnabled ? "Event deals" : "Currently disabled",
+        icon: Icons.local_fire_department_rounded,
+        colors: _themeSaleCardColors(palette, 1),
+        isEnabled: _bigDaysSaleEnabled,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const SaleProductsScreen(
+                collectionKey: "big_days_sale",
+                title: "Big Days Sale",
+              ),
+            ),
+          );
+        },
+      ),
+      _buildSaleButton(
+        title: "Track your parcel",
+        subtitle: "Open parcel tracking",
+        icon: Icons.local_shipping_rounded,
+        colors: _themeSaleCardColors(palette, 2),
+        isEnabled: true,
+        titleFontSize: 12.5,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const TrackingWebViewScreen(),
+            ),
+          );
+        },
+      ),
+      _buildSaleButton(
+        title: "Motorcycle Service Station",
+        subtitle: "Book bike service packages",
+        icon: Icons.miscellaneous_services_rounded,
+        colors: _themeSaleCardColors(palette, 3),
+        isEnabled: true,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const MotorcycleServiceStationScreen(),
+            ),
+          );
+        },
+      ),
+    ];
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildSaleButton(
-                  title: "Daily Sale",
-                  subtitle: _dailySaleEnabled ? "Today picks" : "Currently disabled",
-                  icon: Icons.bolt_rounded,
-                  colors: const [Color(0xFFFF7A18), Color(0xFFFFB347)],
-                  isEnabled: _dailySaleEnabled,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const SaleProductsScreen(
-                          collectionKey: "daily_sale",
-                          title: "Daily Sale",
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildSaleButton(
-                  title: "Big Days Sale",
-                  subtitle: _bigDaysSaleEnabled ? "Event deals" : "Currently disabled",
-                  icon: Icons.local_fire_department_rounded,
-                  colors: const [Color(0xFFE53935), Color(0xFFFF7043)],
-                  isEnabled: _bigDaysSaleEnabled,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const SaleProductsScreen(
-                          collectionKey: "big_days_sale",
-                          title: "Big Days Sale",
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildSaleButton(
-                  title: "Track your parcel",
-                  subtitle: "Open parcel tracking",
-                  icon: Icons.local_shipping_rounded,
-                  colors: _promoCardColors(
-                    context.appPalette,
-                    defaultColors: const [Color(0xFF2563EB), Color(0xFF06B6D4)],
-                  ),
-                  isEnabled: true,
-                  titleFontSize: 12.5,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const TrackingWebViewScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildSaleButton(
-                  title: "Motorcycle Service Station",
-                  subtitle: "Book bike service packages",
-                  icon: Icons.miscellaneous_services_rounded,
-                  colors: _promoCardColors(
-                    context.appPalette,
-                    defaultColors: const [Color(0xFF0EA5E9), Color(0xFF14B8A6)],
-                  ),
-                  isEnabled: true,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const MotorcycleServiceStationScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(0, 6, 0, 10),
+      child: CarouselSlider.builder(
+        itemCount: saleCards.length,
+        itemBuilder: (context, index, realIndex) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: saleCards[index],
+          );
+        },
+        options: CarouselOptions(
+          height: 110,
+          viewportFraction: 0.50,
+          autoPlay: true,
+          autoPlayInterval: const Duration(seconds: 3),
+          autoPlayAnimationDuration: const Duration(milliseconds: 650),
+          autoPlayCurve: Curves.easeOutCubic,
+          enlargeCenterPage: false,
+          enableInfiniteScroll: true,
+          pauseAutoPlayOnTouch: true,
+          padEnds: false,
+          scrollPhysics: const BouncingScrollPhysics(),
+        ),
       ),
     );
   }
@@ -3293,7 +4065,7 @@ class _HomeScreenState extends State<HomeScreen>
                 return FadeTransition(opacity: animation, child: child);
               },
             ),
-          );
+          ).then((_) => _loadRecentlyViewedProducts());
         },
         child: Container(
           decoration: BoxDecoration(
@@ -3545,16 +4317,16 @@ class _HomeScreenState extends State<HomeScreen>
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: () {
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                pageBuilder:
-                    (_, __, ___) => ProductDetailScreen(product: product),
-                transitionsBuilder: (_, animation, __, child) {
-                  return FadeTransition(opacity: animation, child: child);
-                },
-              ),
-            );
+              Navigator.push(
+                context,
+                PageRouteBuilder(
+                  pageBuilder:
+                      (_, __, ___) => ProductDetailScreen(product: product),
+                  transitionsBuilder: (_, animation, __, child) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+                ),
+              ).then((_) => _loadRecentlyViewedProducts());
           },
           child: Container(
             decoration: BoxDecoration(
@@ -3865,162 +4637,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildAIBrainCard() {
-    final palette = context.appPalette;
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const AIBrainScreen()),
-        );
-      },
-      borderRadius: BorderRadius.circular(24),
-      child: Ink(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            colors: [palette.heroStart, palette.heroEnd, palette.background],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(color: palette.border),
-          boxShadow: [
-            BoxShadow(
-              color: palette.textPrimary.withValues(alpha: 0.14),
-              blurRadius: 20,
-              offset: Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [palette.accentStrong, palette.highlight],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    Icons.psychology_alt_rounded,
-                    color: palette.onAccent,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "AI Brain Dashboard",
-                        style: TextStyle(
-                          color: palette.textPrimary,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        "Smart bike insights, predictive service alerts, and rider intelligence in one place.",
-                        style: TextStyle(
-                          color: palette.textMuted,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _buildAIBrainPill("92% Health Score", 0),
-                _buildAIBrainPill("3 Smart Alerts", 1),
-                _buildAIBrainPill("Ride AI Active", 2),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: palette.surfaceStrong,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: palette.border),
-                      ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Next Action",
-                          style: TextStyle(
-                            color: palette.textMuted,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          "Brake and chain health review due",
-                          style: TextStyle(
-                            color: palette.textPrimary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 16,
-                  ),
-                  decoration: BoxDecoration(
-                    color: palette.accent,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "Open",
-                        style: TextStyle(
-                          color: palette.onAccent,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(width: 6),
-                      Icon(
-                        Icons.arrow_forward_rounded,
-                        color: palette.onAccent,
-                        size: 18,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildQuickAccessRail() {
     final palette = context.appPalette;
     return Positioned.fill(
@@ -4028,7 +4644,7 @@ class _HomeScreenState extends State<HomeScreen>
         child: Align(
           alignment: Alignment.centerLeft,
           child: Padding(
-            padding: const EdgeInsets.only(left: 6),
+            padding: EdgeInsets.zero,
             child: AnimatedContainer(
               key: _quickAccessRailKey,
               duration: const Duration(milliseconds: 220),
@@ -4066,19 +4682,22 @@ class _HomeScreenState extends State<HomeScreen>
                     onTap: () {
                       setState(() => _quickAccessExpanded = !_quickAccessExpanded);
                     },
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      width: 32,
-                      height: 32,
+                      width: 15,
+                      height: 15,
                       decoration: BoxDecoration(
                         color: palette.surfaceSoft,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(7),
                       ),
-                      child: Icon(
-                        _quickAccessExpanded
-                            ? Icons.chevron_left_rounded
-                            : Icons.chevron_right_rounded,
-                        color: palette.accent,
+                      child: Center(
+                        child: Icon(
+                          _quickAccessExpanded
+                              ? Icons.keyboard_arrow_left_rounded
+                              : Icons.keyboard_arrow_right_rounded,
+                          color: palette.accent,
+                          size: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -4102,7 +4721,9 @@ class _HomeScreenState extends State<HomeScreen>
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const AIBrainScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const AIBrainScreen(),
+                          ),
                         );
                       },
                     ),
@@ -4168,278 +4789,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildAIBrainPill(String label, int variant) {
-    final palette = context.appPalette;
-    final tone = switch (variant % 3) {
-      0 => palette.accent,
-      1 => palette.highlight,
-      _ => palette.accentStrong,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: tone.withValues(alpha: 0.34)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: palette.textPrimary,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRideCommunityCard() {
-    final palette = context.appPalette;
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const RidingGroupsScreen()),
-        );
-      },
-      borderRadius: BorderRadius.circular(24),
-      child: Ink(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            colors: [palette.heroStart, palette.heroEnd, palette.surfaceStrong],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(color: palette.border),
-          boxShadow: [
-            BoxShadow(
-              color: palette.textPrimary.withValues(alpha: 0.14),
-              blurRadius: 20,
-              offset: Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [palette.accent, palette.highlight],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    Icons.groups_rounded,
-                    color: palette.onAccent,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Riding Groups",
-                        style: TextStyle(
-                          color: palette.textPrimary,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        "Find city-wise riding groups, join after login, and connect through WhatsApp or the admin contact.",
-                        style: TextStyle(
-                          color: palette.textMuted,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _buildAIBrainPill("City Search", 0),
-                _buildAIBrainPill("Join Group", 1),
-                _buildAIBrainPill("Rate Groups", 2),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: palette.surfaceStrong,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: palette.border),
-                      ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Community Value",
-                          style: TextStyle(
-                            color: palette.textMuted,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          "Simple discovery, repeat visits, and stronger rider branding",
-                          style: TextStyle(
-                            color: palette.textPrimary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 16,
-                  ),
-                  decoration: BoxDecoration(
-                    color: palette.accent,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "Open",
-                        style: TextStyle(
-                          color: palette.onAccent,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(width: 6),
-                      Icon(
-                        Icons.arrow_forward_rounded,
-                        color: palette.onAccent,
-                        size: 18,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRidingEventsCard() {
-    final palette = context.appPalette;
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const RideCommunityScreen()),
-        );
-      },
-      borderRadius: BorderRadius.circular(24),
-      child: Ink(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            colors: [palette.heroStart, palette.heroEnd, palette.surfaceStrong],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(color: palette.border),
-          boxShadow: [
-            BoxShadow(
-              color: palette.textPrimary.withValues(alpha: 0.14),
-              blurRadius: 20,
-              offset: Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [palette.highlight, palette.accent],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    Icons.route_rounded,
-                    color: palette.onAccent,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Riding Events",
-                        style: TextStyle(
-                          color: palette.textPrimary,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        "Create ride events, share routes, approve requests, and manage riders from one place.",
-                        style: TextStyle(
-                          color: palette.textMuted,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _buildAIBrainPill("Create Ride", 1),
-                _buildAIBrainPill("Join Requests", 2),
-                _buildAIBrainPill("Manage Riders", 0),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildSaleButton({
     required String title,
     required String subtitle,
@@ -4450,99 +4799,127 @@ class _HomeScreenState extends State<HomeScreen>
     double titleFontSize = 11.5,
   }) {
     final palette = context.appPalette;
+    final activeColors = colors.length >= 2
+        ? colors
+        : [palette.accentStrong, palette.highlight];
+    final disabledColors = [
+      palette.surfaceSoft,
+      palette.surfaceStrong,
+    ];
+    final cardColors = isEnabled ? activeColors : disabledColors;
+    final titleSize = title.length > 22 ? 11.8 : titleFontSize + 1.2;
+    final activeTextColor =
+        cardColors.first.computeLuminance() > 0.45 ? Colors.black : Colors.white;
+    final titleColor = isEnabled ? activeTextColor : palette.textMuted;
+    final subtitleColor = isEnabled
+        ? activeTextColor.withOpacity(activeTextColor == Colors.black ? 0.72 : 0.84)
+        : palette.textMuted;
+    final badgeColor =
+        isEnabled ? activeTextColor.withOpacity(0.90) : palette.surfaceSoft;
+    final badgeIconColor = isEnabled
+        ? (activeTextColor == Colors.black ? Colors.white : cardColors.first)
+        : palette.textMuted;
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       child: Ink(
-        height: 92,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+        height: 100,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          color: isEnabled ? palette.surface : const Color(0xFF232323),
-          border: Border.all(
-            color: isEnabled ? palette.accent : Colors.white24,
-            width: 1.4,
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: cardColors,
           ),
-          boxShadow: const [
+          border: Border.all(
+            color: isEnabled
+                ? Colors.white.withOpacity(0.24)
+                : palette.border.withOpacity(0.70),
+            width: 1.1,
+          ),
+          boxShadow: [
             BoxShadow(
-              color: Color(0x44000000),
-              blurRadius: 16,
-              offset: Offset(0, 8),
+              color: cardColors.first.withOpacity(isEnabled ? 0.26 : 0.08),
+              blurRadius: 14,
+              offset: const Offset(0, 7),
             ),
           ],
         ),
         child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: isEnabled
-                        ? palette.accent
-                        : Colors.white.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    isEnabled ? icon : Icons.lock_rounded,
-                    color: isEnabled ? Colors.black : Colors.white,
-                  ),
-                ),
-                  const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: palette.textPrimary,
-                          fontSize: titleFontSize,
-                          height: 1.15,
-                          fontWeight: FontWeight.w800,
-                        ),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: badgeColor,
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(
+                        color: palette.accent.withOpacity(0.32),
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        subtitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isEnabled ? palette.textMuted : Colors.white60,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                    ),
+                    child: Icon(
+                      isEnabled ? icon : Icons.lock_rounded,
+                      color: badgeIconColor,
+                      size: 19,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: titleColor,
+                      fontSize: titleSize,
+                      height: 1.05,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: subtitleColor,
+                      fontSize: 10,
+                      height: 1.05,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
             if (!isEnabled)
               Positioned(
-                top: 0,
-                right: 0,
+                top: 2,
+                right: 2,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
+                    horizontal: 7,
+                    vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF111827),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white24),
+                    color: Colors.black.withOpacity(0.22),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Text(
                     "OFF",
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.4,
+                      color: Colors.white70,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -4554,5 +4931,84 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
+class _BarcodeScannerScreen extends StatefulWidget {
+  const _BarcodeScannerScreen();
 
+  @override
+  State<_BarcodeScannerScreen> createState() => _BarcodeScannerScreenState();
+}
 
+class _BarcodeScannerScreenState extends State<_BarcodeScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    facing: CameraFacing.back,
+  );
+  bool _handled = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    final value = capture.barcodes
+        .map((barcode) => barcode.rawValue?.trim() ?? "")
+        .firstWhere((code) => code.isNotEmpty, orElse: () => "");
+    if (value.isEmpty) return;
+    _handled = true;
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text("Scan Barcode"),
+        actions: [
+          IconButton(
+            tooltip: "Flash",
+            icon: const Icon(Icons.flash_on_rounded),
+            onPressed: _controller.toggleTorch,
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: _controller,
+            onDetect: _handleDetect,
+          ),
+          Center(
+            child: Container(
+              width: 260,
+              height: 150,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 34,
+            child: Text(
+              "Place the barcode inside the frame",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.86),
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

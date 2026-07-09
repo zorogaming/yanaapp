@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+import '../config.dart';
 import '../services/woo_service.dart';
 import '../services/data_manager.dart';
 import '../models/product_model.dart';
@@ -30,11 +32,7 @@ class ProductsScreen extends StatefulWidget {
   final int? categoryId;
   final String title;
 
-  const ProductsScreen({
-    super.key,
-    this.categoryId,
-    required this.title,
-  });
+  const ProductsScreen({super.key, this.categoryId, required this.title});
 
   @override
   State<ProductsScreen> createState() => _ProductsScreenState();
@@ -92,8 +90,9 @@ class _ProductsScreenState extends State<ProductsScreen>
   }) async {
     final overlay = Overlay.of(context, rootOverlay: true);
     final startBox = startContext.findRenderObject() as RenderBox?;
-    final endBox = _cartIconKey.currentContext?.findRenderObject() as RenderBox?;
-    if (overlay == null || startBox == null || endBox == null) {
+    final endBox =
+        _cartIconKey.currentContext?.findRenderObject() as RenderBox?;
+    if (startBox == null || endBox == null) {
       _cartPulseController.forward(from: 0);
       return;
     }
@@ -116,13 +115,16 @@ class _ProductsScreenState extends State<ProductsScreen>
         final t = animation.value;
         final squeezeProgress = ((t - 0.76) / 0.24).clamp(0.0, 1.0);
         final size = lerpDouble(62, 16, t) ?? 24;
-        final dx = (lerpDouble(start.dx, end.dx, t) ?? end.dx) +
+        final dx =
+            (lerpDouble(start.dx, end.dx, t) ?? end.dx) +
             (math.sin(t * math.pi * 1.15) * 14 * (1 - t));
-        final dy = (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
+        final dy =
+            (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
             (math.sin(t * math.pi) * 136) -
             (squeezeProgress * 6);
-        final opacity =
-            t < 0.9 ? 1.0 : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
+        final opacity = t < 0.9
+            ? 1.0
+            : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
         final glowSize = size + 20;
         final iconSize = lerpDouble(18, 8, t) ?? 12;
         final scaleBoost = 1 + (math.sin(t * math.pi) * 0.16);
@@ -247,7 +249,10 @@ class _ProductsScreenState extends State<ProductsScreen>
                           decoration: BoxDecoration(
                             color: palette.accent,
                             shape: BoxShape.circle,
-                            border: Border.all(color: palette.surface, width: 1.5),
+                            border: Border.all(
+                              color: palette.surface,
+                              width: 1.5,
+                            ),
                           ),
                           child: Icon(
                             Icons.shopping_bag_rounded,
@@ -311,7 +316,8 @@ class _ProductsScreenState extends State<ProductsScreen>
       int nextTotalProducts = 0;
       int nextTotalPages = 0;
 
-      final shouldUseCategoryCache = !loadMore &&
+      final shouldUseCategoryCache =
+          !loadMore &&
           currentPage == 1 &&
           widget.categoryId != null &&
           (searchQuery == null || searchQuery!.trim().isEmpty) &&
@@ -319,8 +325,9 @@ class _ProductsScreenState extends State<ProductsScreen>
           order == "desc";
 
       if (shouldUseCategoryCache) {
-        final cachedOrFresh =
-            await dataManager.getCategoryProducts(widget.categoryId!);
+        final cachedOrFresh = await dataManager.getCategoryProducts(
+          widget.categoryId!,
+        );
         newProducts = cachedOrFresh.map((e) => Product.fromJson(e)).toList();
       } else {
         final trimmedSearch = searchQuery?.trim() ?? "";
@@ -396,6 +403,27 @@ class _ProductsScreenState extends State<ProductsScreen>
     fetchProducts();
   }
 
+  String _storeHomeUrl() {
+    final uri = Uri.parse(Config.baseUrl);
+    return "${uri.scheme}://${uri.host}";
+  }
+
+  String _slugify(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^a-z0-9]+"), "-")
+        .replaceAll(RegExp(r"(^-|-$)"), "");
+  }
+
+  Future<void> _shareCategory() async {
+    final categoryUrl =
+        "${_storeHomeUrl()}/product-category/${_slugify(widget.title)}/";
+    final message =
+        "Check this category on YANA Worldwide:\n${widget.title}\n$categoryUrl";
+
+    await Share.share(message, subject: widget.title);
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
@@ -415,6 +443,12 @@ class _ProductsScreenState extends State<ProductsScreen>
         iconTheme: IconThemeData(color: palette.textPrimary),
         elevation: 0,
         actions: [
+          if (widget.categoryId != null)
+            IconButton(
+              onPressed: _shareCategory,
+              icon: Icon(Icons.share_rounded, color: palette.textPrimary),
+              tooltip: "Share Category",
+            ),
           PopupMenuButton<String>(
             icon: Icon(Icons.sort, color: palette.textPrimary),
             color: palette.surface,
@@ -428,13 +462,17 @@ class _ProductsScreenState extends State<ProductsScreen>
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               PopupMenuItem<String>(
                 value: "low_high",
-                child: Text('Price: Low to High',
-                    style: TextStyle(color: palette.textPrimary)),
+                child: Text(
+                  'Price: Low to High',
+                  style: TextStyle(color: palette.textPrimary),
+                ),
               ),
               PopupMenuItem<String>(
                 value: "high_low",
-                child: Text('Price: High to Low',
-                    style: TextStyle(color: palette.textPrimary)),
+                child: Text(
+                  'Price: High to Low',
+                  style: TextStyle(color: palette.textPrimary),
+                ),
               ),
             ],
           ),
@@ -453,7 +491,9 @@ class _ProductsScreenState extends State<ProductsScreen>
                         );
                         final scale = 1 + (0.24 * progress);
                         final rotation =
-                            math.sin(progress * math.pi * 4) * 0.12 * (1 - progress);
+                            math.sin(progress * math.pi * 4) *
+                            0.12 *
+                            (1 - progress);
                         return Transform.rotate(
                           angle: rotation,
                           child: Transform.scale(scale: scale, child: child),
@@ -470,10 +510,10 @@ class _ProductsScreenState extends State<ProductsScreen>
                         top: -5,
                         child: Container(
                           padding: const EdgeInsets.all(2),
-                           decoration: BoxDecoration(
-                             color: palette.accent,
-                             shape: BoxShape.circle,
-                           ),
+                          decoration: BoxDecoration(
+                            color: palette.accent,
+                            shape: BoxShape.circle,
+                          ),
                           constraints: const BoxConstraints(
                             minWidth: 16,
                             minHeight: 16,
@@ -482,7 +522,7 @@ class _ProductsScreenState extends State<ProductsScreen>
                             cart.items.length.toString(),
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                               color: palette.onAccent,
+                              color: palette.onAccent,
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                             ),
@@ -494,9 +534,7 @@ class _ProductsScreenState extends State<ProductsScreen>
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => const CartScreen(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const CartScreen()),
                   );
                 },
               );
@@ -506,114 +544,115 @@ class _ProductsScreenState extends State<ProductsScreen>
         ],
       ),
       body: Container(
-         decoration: BoxDecoration(
-           gradient: LinearGradient(
-             begin: Alignment.topCenter,
-             end: Alignment.bottomCenter,
-             colors: [palette.heroEnd, palette.background],
-           ),
-         ),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [palette.heroEnd, palette.background],
+          ),
+        ),
         child: Column(
-        children: [
-          Container(
-             color: palette.surface,
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-            child: TextField(
-              controller: _searchController,
-              onSubmitted: searchProducts,
-               style: TextStyle(
-                 color: palette.textPrimary,
-                 fontWeight: FontWeight.w500,
-               ),
-              decoration: InputDecoration(
-                hintText: "Search products, SKU, brand or model...",
-                 hintStyle: TextStyle(color: palette.textMuted),
-                 prefixIcon:
-                     Icon(Icons.search, color: palette.accent),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                         icon: Icon(
-                           Icons.clear,
-                           color: palette.textMuted,
-                         ),
-                        onPressed: () {
-                          _searchController.clear();
-                          searchProducts("");
-                        },
-                      )
-                    : null,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
+          children: [
+            Container(
+              color: palette.surface,
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+              child: TextField(
+                controller: _searchController,
+                onSubmitted: searchProducts,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontWeight: FontWeight.w500,
                 ),
-                filled: true,
-                 fillColor: palette.surfaceStrong,
+                decoration: InputDecoration(
+                  hintText: "Search products, SKU, brand or model...",
+                  hintStyle: TextStyle(color: palette.textMuted),
+                  prefixIcon: Icon(Icons.search, color: palette.accent),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: Icon(Icons.clear, color: palette.textMuted),
+                          onPressed: () {
+                            _searchController.clear();
+                            searchProducts("");
+                          },
+                        )
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: palette.surfaceStrong,
+                ),
               ),
             ),
-          ),
-          Container(
-            width: double.infinity,
-            color: palette.surface,
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildSummaryChip(
-                  "Total Products: ${totalProducts > 0 ? totalProducts : products.length}",
-                ),
-                _buildSummaryChip("Total Pages: ${totalPages > 0 ? totalPages : 1}"),
-              ],
+            Container(
+              width: double.infinity,
+              color: palette.surface,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildSummaryChip(
+                    "Total Products: ${totalProducts > 0 ? totalProducts : products.length}",
+                  ),
+                  _buildSummaryChip(
+                    "Total Pages: ${totalPages > 0 ? totalPages : 1}",
+                  ),
+                ],
+              ),
             ),
-          ),
-          // Product Grid
-          Expanded(
-            child: products.isEmpty && isLoading
-                ? const ProductsGridSkeleton(
-                    padding: EdgeInsets.all(12),
-                    childAspectRatio: 0.56,
-                  )
-                : products.isEmpty && !isLoading
-                    ? Center(
-                         child: Text("No products found.",
-                             style: TextStyle(color: palette.textPrimary)))
-                    : GridView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(12),
-                        itemCount: products.length + (hasMore ? 1 : 0),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                          childAspectRatio: 0.56,
-                        ),
-                        itemBuilder: (context, index) {
-                          if (index == products.length) {
-                            return const ProductCardSkeleton();
-                          }
-                          final product = products[index];
-                          return ProductCard(
-                            product: product,
-                            onAnimateToCart: (buttonContext, imageUrl) {
-                              _runAddToBagAnimation(
-                                startContext: buttonContext,
-                                imageUrl: imageUrl,
-                              );
-                            },
-                            onToggleWishlist: (selectedProduct, {source}) {
-                              return _toggleWishlistForProduct(
-                                selectedProduct,
-                                source: source ?? 'products_grid',
-                              );
-                            },
-                          );
-                        },
+            // Product Grid
+            Expanded(
+              child: products.isEmpty && isLoading
+                  ? const ProductsGridSkeleton(
+                      padding: EdgeInsets.all(12),
+                      childAspectRatio: 0.56,
+                    )
+                  : products.isEmpty && !isLoading
+                  ? Center(
+                      child: Text(
+                        "No products found.",
+                        style: TextStyle(color: palette.textPrimary),
                       ),
-          ),
-        ],
-      ),
+                    )
+                  : GridView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: products.length + (hasMore ? 1 : 0),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            childAspectRatio: 0.56,
+                          ),
+                      itemBuilder: (context, index) {
+                        if (index == products.length) {
+                          return const ProductCardSkeleton();
+                        }
+                        final product = products[index];
+                        return ProductCard(
+                          product: product,
+                          onAnimateToCart: (buttonContext, imageUrl) {
+                            _runAddToBagAnimation(
+                              startContext: buttonContext,
+                              imageUrl: imageUrl,
+                            );
+                          },
+                          onToggleWishlist: (selectedProduct, {source}) {
+                            return _toggleWishlistForProduct(
+                              selectedProduct,
+                              source: source ?? 'products_grid',
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -645,8 +684,10 @@ class _ProductsScreenState extends State<ProductsScreen>
 class ProductCard extends StatelessWidget {
   final Product product;
   final String? badgeLabel;
-  final void Function(BuildContext buttonContext, String imageUrl)? onAnimateToCart;
-  final Future<void> Function(Product product, {String? source})? onToggleWishlist;
+  final void Function(BuildContext buttonContext, String imageUrl)?
+  onAnimateToCart;
+  final Future<void> Function(Product product, {String? source})?
+  onToggleWishlist;
 
   const ProductCard({
     super.key,
@@ -694,8 +735,9 @@ class ProductCard extends StatelessWidget {
                 children: [
                   Positioned.fill(
                     child: ClipRRect(
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(15)),
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(15),
+                      ),
                       child: Container(
                         color: palette.surfaceStrong,
                         child: AppCachedImage(
@@ -838,7 +880,10 @@ class ProductCard extends StatelessWidget {
                         ),
                       if (product.discountPercent > 0)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: palette.accent,
                             borderRadius: BorderRadius.circular(999),
@@ -858,12 +903,10 @@ class ProductCard extends StatelessWidget {
                   // Add to Cart Button - Updated Logic
                   Consumer2<CartProvider, WishlistProvider>(
                     builder: (context, cart, wishlist, child) {
-                      bool isInCart =
-                          cart.items.any(
-                            (item) =>
-                                item.id == product.id &&
-                                item.variationId == null,
-                          );
+                      bool isInCart = cart.items.any(
+                        (item) =>
+                            item.id == product.id && item.variationId == null,
+                      );
                       final isWishlisted = wishlist.containsProduct(product.id);
                       return SizedBox(
                         width: double.infinity,
@@ -888,7 +931,9 @@ class ProductCard extends StatelessWidget {
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
-                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
                                   ),
                                   onPressed: () {
                                     if (isOutOfStock) {
@@ -898,15 +943,17 @@ class ProductCard extends StatelessWidget {
                                       );
                                       return;
                                     }
-                                    final cartProvider = Provider.of<CartProvider>(
-                                      context,
-                                      listen: false,
-                                    );
-                                    final alreadyInCart = cartProvider.items.any(
-                                      (item) =>
-                                          item.id == product.id &&
-                                          item.variationId == null,
-                                    );
+                                    final cartProvider =
+                                        Provider.of<CartProvider>(
+                                          context,
+                                          listen: false,
+                                        );
+                                    final alreadyInCart = cartProvider.items
+                                        .any(
+                                          (item) =>
+                                              item.id == product.id &&
+                                              item.variationId == null,
+                                        );
 
                                     if (alreadyInCart) {
                                       Future.microtask(() {
@@ -925,12 +972,19 @@ class ProductCard extends StatelessWidget {
                                           variationId: null,
                                           name: product.name,
                                           image: product.image,
-                                          price: double.tryParse(product.price) ?? 0,
+                                          price:
+                                              double.tryParse(product.price) ??
+                                              0,
                                           quantity: 1,
                                         ),
                                       );
-                                      onAnimateToCart?.call(buttonContext, product.image);
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      onAnimateToCart?.call(
+                                        buttonContext,
+                                        product.image,
+                                      );
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
                                         SnackBar(
                                           backgroundColor: snackColor,
                                           duration: const Duration(seconds: 1),
@@ -950,7 +1004,9 @@ class ProductCard extends StatelessWidget {
                                         ? (isWishlisted
                                               ? "Wishlisted"
                                               : "Add to Wishlist")
-                                        : (isInCart ? "Go to Bag" : "Add to Bag"),
+                                        : (isInCart
+                                              ? "Go to Bag"
+                                              : "Add to Bag"),
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w700,
@@ -980,7 +1036,8 @@ class ProductCard extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                 ),
-                                onPressed: () => onToggleWishlist?.call(product),
+                                onPressed: () =>
+                                    onToggleWishlist?.call(product),
                                 child: Icon(
                                   isWishlisted
                                       ? Icons.favorite_rounded

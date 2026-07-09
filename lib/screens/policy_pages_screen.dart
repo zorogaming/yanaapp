@@ -109,12 +109,13 @@ class RefundsAndCancellationsPage extends StatelessWidget {
     return const PolicyPageScreen(
       title: "Refunds & Cancellations",
       sections: [
-        "Cancellation requests are accepted before order processing/dispatch. Once dispatched, cancellation may not be possible.",
-        "For prepaid orders paid via PhonePe / Cashfree, approved refunds are initiated to the original payment source as per banking timelines.",
-        "Typical refund timeline is 5-7 business days after approval, but actual credit depends on bank/issuer/UPI partner.",
-        "If payment is debited but order is not confirmed, we verify payment status with PhonePe / Cashfree. Eligible transactions are auto-refunded or manually refunded after verification.",
-        "Refunds may be rejected for delivered, used, damaged-by-customer, or policy-violating return requests.",
-        "For refund help, contact support with Order ID, payment amount, and transaction details.",
+        "At Yana Worldwide, we strive to process and dispatch orders as quickly as possible.",
+        "Order Cancellation\nOrders can only be canceled within 5 hours of placing the order. Any cancellation request received after 5 hours from the time of purchase will not be accepted. Once the cancellation window has expired, the order cannot be canceled under any circumstances. Customers are requested to carefully verify product compatibility, quantity, shipping address, and other order details before placing an order.",
+        "Snapmint EMI Orders\nOrders placed through Snapmint EMI are not eligible for cancellation. Such orders may only qualify for replacement in the event of a verified defective product, subject to approval.",
+        "Refused Deliveries\nRefusing delivery after an order has been shipped does not make the order eligible for cancellation, return, or refund. If a customer refuses delivery and the shipment is returned to us, the customer will be responsible for all applicable forward shipping charges, return shipping charges, handling charges, and associated costs. Any advance payment made may be adjusted against these charges before any balance amount is considered for refund, if applicable.",
+        "Refund Method\nApproved refunds may first be issued as Store Wallet Credit. In exceptional cases, refunds may be processed to the original payment method. Refund processing times depend on payment providers, banks, and settlement timelines.",
+        "Refund Deductions\nWhere legally permissible, approved refunds may be subject to deductions including payment gateway charges, merchant settlement charges, shipping charges, return shipping charges, handling charges, packaging charges, and other applicable operational costs.",
+        "Final Decision\nAll return, replacement, refund, and cancellation requests are subject to verification and final approval by Yana Worldwide. The company's decision regarding eligibility and resolution shall be final.",
       ],
     );
   }
@@ -128,12 +129,15 @@ class ReturnPolicyPage extends StatelessWidget {
     return const PolicyPageScreen(
       title: "Return Policy",
       sections: [
-        "Returns are accepted only for eligible products in unused condition with original packaging, tags, and invoice intact.",
-        "Return requests must be raised within 7 days of delivery unless a different return window is explicitly mentioned on the product page.",
-        "If a product is marked non-returnable or has a different return timeline, the product page or order details page will override the standard 7-day window.",
-        "Products showing signs of use, physical damage, missing accessories, or tampered packaging may be rejected after inspection.",
-        "Some categories such as clearance items, special-order parts, consumables, or custom items may be non-returnable.",
-        "Approved returns are processed after pickup and quality check confirmation from our team.",
+        "Return, Replacement & Refund Policy\nWe accept claims only for products that are received damaged, defective, or incorrectly supplied.",
+        "Mandatory Unboxing Video Requirement\nTo qualify for any return, replacement, or refund request, a complete unboxing video is mandatory. The video must start before opening the package, clearly show the shipping label and outer packaging, show the entire package continuously from start to finish, be recorded without cuts, edits, pauses, or interruptions, and clearly show the opening of the package and the contents received.",
+        "Claims will be rejected if the video contains cuts, edits, or missing portions, the package is not fully visible throughout the recording, the product issue cannot be clearly verified from the video, or no unboxing video is provided.",
+        "Statements such as \"The video was not recorded properly\", \"The video contains cuts by mistake\", \"I forgot to record the video\", or \"The issue is not visible in the video\" will not be accepted as valid grounds for approval.",
+        "Reporting an Issue\nCustomers must report any damaged, defective, or incorrect item within 48 hours of delivery. The claim must include order number, product photographs, clear description of the issue, and complete unboxing video. Claims submitted after 48 hours may be rejected.",
+        "Replacement Policy\nReplacement is the primary resolution offered for approved claims. Replacements are subject to stock availability and verification. Products must be unused and in the same condition as received. Customers may be required to return the original product before a replacement is issued.",
+        "Refund Policy\nRefunds are generally not provided when a replacement is available. A refund may only be considered when a replacement product is unavailable due to stock shortages, a replacement cannot be arranged for operational reasons, or the company determines that a refund is the appropriate resolution.",
+        "Non-Returnable Situations\nReturns, replacements, or refunds will not be accepted for incorrect products ordered by the customer, compatibility issues due to failure to verify vehicle fitment, products damaged due to improper installation or misuse, normal wear and tear, claims submitted without a valid unboxing video, claims submitted after the reporting period, refused deliveries, and Snapmint EMI orders except verified defective product replacement cases.",
+        "Final Decision\nAll return, replacement, refund, and cancellation requests are subject to verification and final approval by Yana Worldwide. The company's decision regarding eligibility and resolution shall be final.",
       ],
     );
   }

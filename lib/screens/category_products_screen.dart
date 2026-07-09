@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
+import '../config.dart';
 import '../services/data_manager.dart';
 import '../models/product_model.dart';
 import 'product_detail_screen.dart';
@@ -34,6 +36,27 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
     products = dataManager.getCategoryProducts(widget.categoryId);
   }
 
+  String _storeHomeUrl() {
+    final uri = Uri.parse(Config.baseUrl);
+    return "${uri.scheme}://${uri.host}";
+  }
+
+  String _slugify(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^a-z0-9]+"), "-")
+        .replaceAll(RegExp(r"(^-|-$)"), "");
+  }
+
+  Future<void> _shareCategory() async {
+    final categoryUrl =
+        "${_storeHomeUrl()}/product-category/${_slugify(widget.categoryName)}/";
+    final message =
+        "Check this category on YANA Worldwide:\n${widget.categoryName}\n$categoryUrl";
+
+    await Share.share(message, subject: widget.categoryName);
+  }
+
   @override
   Widget build(BuildContext context) {
     final safeBottom = MediaQuery.of(context).viewPadding.bottom;
@@ -42,12 +65,21 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
       appBar: AppBar(
         title: Text(
           widget.categoryName,
-          style:
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         backgroundColor: ktmBlack,
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
+        actions: [
+          IconButton(
+            onPressed: _shareCategory,
+            icon: const Icon(Icons.share_rounded),
+            tooltip: "Share Category",
+          ),
+        ],
       ),
       body: FutureBuilder(
         future: products,
@@ -61,17 +93,24 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
             );
           } else if (snapshot.hasError) {
             return Center(
-                child: Text("Error: ${snapshot.error}",
-                    style: const TextStyle(color: Colors.redAccent)));
+              child: Text(
+                "Error: ${snapshot.error}",
+                style: const TextStyle(color: Colors.redAccent),
+              ),
+            );
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(
-                child: Text("No products found",
-                    style: TextStyle(color: Colors.grey)));
+              child: Text(
+                "No products found",
+                style: TextStyle(color: Colors.grey),
+              ),
+            );
           }
 
           List data = snapshot.data!;
-          List<Product> productList =
-              data.map((e) => Product.fromJson(e)).toList();
+          List<Product> productList = data
+              .map((e) => Product.fromJson(e))
+              .toList();
 
           return GridView.builder(
             padding: EdgeInsets.fromLTRB(10, 10, 10, 10 + safeBottom + 8),
@@ -103,7 +142,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                         color: Colors.black.withOpacity(0.05),
                         blurRadius: 5,
                         offset: const Offset(0, 2),
-                      )
+                      ),
                     ],
                   ),
                   child: Column(
@@ -114,7 +153,8 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                         aspectRatio: 1.1,
                         child: ClipRRect(
                           borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(15)),
+                            top: Radius.circular(15),
+                          ),
                           child: AppCachedImage(
                             url: product.image,
                             fit: BoxFit.cover,
@@ -154,20 +194,41 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                   if (product.hasDiscount)
                                     Text(
                                       "\u20B9${product.regularPrice}",
-                                      style: const TextStyle(fontSize: 11, color: Colors.grey, decoration: TextDecoration.lineThrough),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        decoration: TextDecoration.lineThrough,
+                                      ),
                                     ),
                                   if (product.discountPercent > 0)
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                      decoration: BoxDecoration(color: ktmOrange, borderRadius: BorderRadius.circular(999)),
-                                      child: Text("${product.discountPercent}% OFF", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: ktmOrange,
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        "${product.discountPercent}% OFF",
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
                                     ),
                                 ],
                               ),
                               const Text(
                                 "or ₹867/month with Snapmint",
-                                style:
-                                    TextStyle(fontSize: 11, color: Colors.grey),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                ),
                               ),
                               const Spacer(),
                               // KTM Style Add to Cart Button
@@ -180,7 +241,8 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                            "${product.name} added to cart"),
+                                          "${product.name} added to cart",
+                                        ),
                                         backgroundColor: ktmOrange,
                                       ),
                                     );
@@ -190,7 +252,8 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                     foregroundColor: Colors.white,
                                     // 🛑 FIX: Padding kam ki tak text na kate
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 5),
+                                      horizontal: 5,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
@@ -200,8 +263,9 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                     "ADD TO BAG",
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                        fontSize: 8, // Text size wahi rakha
-                                        fontWeight: FontWeight.bold),
+                                      fontSize: 8, // Text size wahi rakha
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ),

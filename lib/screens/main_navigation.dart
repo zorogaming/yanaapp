@@ -26,6 +26,8 @@ class _MainNavigationState extends State<MainNavigation> {
   int currentIndex = 0;
   bool _startupReady = false;
   final AuthService _authService = AuthService();
+  final ValueNotifier<int> _homeRecentlyViewedRefresh = ValueNotifier<int>(0);
+  late final List<Widget> screens;
   AppThemePalette get _palette => context.appPalette;
   static const List<String> _tabNames = [
     "home",
@@ -36,21 +38,30 @@ class _MainNavigationState extends State<MainNavigation> {
     "profile",
   ];
 
-  final List<Widget> screens = const [
-    HomeScreen(),
-    CartScreen(),
-    MenuScreen(),
-    NotificationInboxScreen(),
-    OrdersScreen(),
-    ProfileScreen(),
-  ];
-
   @override
   void initState() {
     super.initState();
+    screens = [
+      HomeScreen(recentlyViewedRefresh: _homeRecentlyViewedRefresh),
+      CartScreen(
+        onContinueShopping: () {
+          setState(() => currentIndex = 0);
+        },
+      ),
+      const MenuScreen(),
+      const NotificationInboxScreen(),
+      const OrdersScreen(),
+      const ProfileScreen(),
+    ];
     AnalyticsService.instance.logScreen("tab_home");
     NotificationInboxService.instance.refreshUnreadCount();
     _prepareStartup();
+  }
+
+  @override
+  void dispose() {
+    _homeRecentlyViewedRefresh.dispose();
+    super.dispose();
   }
 
   Future<void> _prepareStartup() async {
@@ -177,6 +188,9 @@ class _MainNavigationState extends State<MainNavigation> {
             }
           }
           if (!mounted) return;
+          if (index == 0) {
+            _homeRecentlyViewedRefresh.value++;
+          }
           setState(() => currentIndex = index);
           if (index == 3) {
             NotificationInboxService.instance.markAllRead();
