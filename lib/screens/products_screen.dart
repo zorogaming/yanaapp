@@ -346,7 +346,10 @@ class _ProductsScreenState extends State<ProductsScreen>
                 orderBy: orderBy,
                 order: order,
               );
-        newProducts = result.items.map((e) => Product.fromJson(e)).toList();
+        final annotatedItems = await dataManager.annotateProductsWithPriceDrops(
+          result.items,
+        );
+        newProducts = annotatedItems.map((e) => Product.fromJson(e)).toList();
         nextTotalProducts = result.totalProducts;
         nextTotalPages = result.totalPages;
       }
@@ -766,6 +769,36 @@ class ProductCard extends StatelessWidget {
                             color: palette.onAccent,
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (product.priceDropped)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2F6BFF),
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x33000000),
+                              blurRadius: 8,
+                              offset: Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          "PRICE DROP",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),

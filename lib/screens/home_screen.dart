@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show lerpDouble;
+import 'dart:ui' show FontFeature, lerpDouble;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
@@ -295,6 +295,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   static const String _themePromptCompletedKey = "theme_prompt_completed_v1";
+  static const String _shopByBikeIntroSeenKey = "shop_by_bike_intro_seen_v1";
   static const String _imageCacheKey = "home_banner_image_txt_cache";
   static const String _imageCacheVersionKey = "home_banner_image_txt_version";
   static const String _videoCacheKey = "home_banner_video_txt_cache";
@@ -306,13 +307,19 @@ class _HomeScreenState extends State<HomeScreen>
   static const int _homeBannerCacheWidth = 1280;
   static const int _homeProductImageCacheWidth = 720;
   static const int _homeCategoryImageCacheWidth = 240;
+  static const double _saleCardHeight = 112;
   final CarouselSliderController _bannerController = CarouselSliderController();
   late final Future<_HomeCategorySectionData> _categorySectionFuture;
+  late final Future<List<Product>> _newArrivalsFuture;
+  late final Future<List<Product>> _bestSellersFuture;
   late Future<Map<String, dynamic>> _bikeGarageFuture;
   late Future<String?> _authTokenFuture;
   late final AnimationController _titleAnimController;
   late final AnimationController _cartPulseController;
   late final AnimationController _searchCtaController;
+  late final AnimationController _shopByBikeIntroController;
+  Timer? _dailySaleCountdownTimer;
+  DateTime _dailySaleClock = DateTime.now();
   String currentSearch = "";
   String offerText = "";
   bool isOfferLoading = true;
@@ -323,6 +330,86 @@ class _HomeScreenState extends State<HomeScreen>
     "https://yanaworldwide.store/wp-content/uploads/slider-2.jpg",
     "https://yanaworldwide.store/wp-content/uploads/slider-3.jpg",
   ];
+  static const List<String> _defaultSearchSuggestions = [
+    "RCB",
+    "UMA Racing",
+    "Helmet",
+    "Full face helmet",
+    "Helmet visor",
+    "Helmet lock",
+    "Riding gloves",
+    "Riding jacket",
+    "Riding pants",
+    "Riding boots",
+    "Knee guard",
+    "Elbow guard",
+    "Mobile holder",
+    "Phone mount",
+    "USB charger",
+    "Chain lube",
+    "Chain cleaner",
+    "Engine oil",
+    "Brake oil",
+    "Coolant",
+    "Crash guard",
+    "Saree guard",
+    "Leg guard",
+    "Bike cover",
+    "Tank pad",
+    "Tank bag",
+    "Tail bag",
+    "Saddle bag",
+    "LED indicators",
+    "Aux lights",
+    "Fog lights",
+    "Mirror",
+    "Handle grip",
+    "Bar end mirror",
+    "Touring luggage",
+    "Brake pads",
+    "Clutch lever",
+    "Brake lever",
+    "Spark plug",
+    "Air filter",
+    "Oil filter",
+    "Disc lock",
+    "Number plate holder",
+    "Hazard flasher",
+    "Exhaust",
+    "Windshield",
+    "Tyre inflator",
+    "Puncture kit",
+    "Rain cover",
+    "Balaclava",
+    "Rynox",
+    "Axor",
+    "MT helmet",
+    "Studds",
+    "Vega",
+    "Raida",
+    "Motul",
+    "Liqui Moly",
+  ];
+
+  static const Map<String, List<String>> _searchSuggestionAliases = {
+    "helmet": ["helm", "halmet", "cap"],
+    "visor": ["glass", "shield"],
+    "gloves": ["glove", "hand"],
+    "jacket": ["jaket", "coat"],
+    "boots": ["boot", "shoe", "shoes"],
+    "mobile": ["phone", "holder", "mount"],
+    "usb": ["charger", "charging"],
+    "chain": ["lube", "cleaner"],
+    "oil": ["lubricant", "lube", "engine"],
+    "guard": ["crash", "leg", "saree", "protector"],
+    "bag": ["luggage", "tank", "tail", "saddle", "touring"],
+    "light": ["led", "fog", "aux", "indicator"],
+    "mirror": ["bar end", "rear view"],
+    "brake": ["pad", "lever", "disc"],
+    "filter": ["air", "oil"],
+    "lock": ["disc", "helmet", "security"],
+    "cover": ["rain", "bike"],
+  };
 
   final List<HomeBannerMedia> _bannerItems = [
     HomeBannerMedia.image(
@@ -341,6 +428,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   final ScrollController _scrollController = ScrollController();
   final TextEditingController searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   List<Product> products = [];
   bool isLoading = false;
@@ -354,6 +442,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool _dailySaleEnabled = true;
   bool _bigDaysSaleEnabled = true;
   bool _quickAccessExpanded = false;
+  bool _shopByBikeIntroRunning = false;
+  bool _shopByBikeIntroTopActive = false;
+  bool _selectMotorcycleIntroActive = false;
   String _selectedTopCategoryKey = "shop_by_bike";
   double _homeChromeCollapseProgress = 0;
   List<Product> _recentlyViewedProducts = const <Product>[];
@@ -393,10 +484,23 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1450),
     );
+    _shopByBikeIntroController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1050),
+    );
+    _dailySaleCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        _dailySaleClock = DateTime.now();
+      });
+    });
     _scrollController.addListener(_handleHomeScroll);
     widget.recentlyViewedRefresh?.addListener(_handleRecentlyViewedRefresh);
+    _searchFocusNode.addListener(_handleSearchFocusChanged);
     AnalyticsService.instance.logScreen("home");
     _categorySectionFuture = _loadHomeCategorySection();
+    _newArrivalsFuture = _loadNewArrivals();
+    _bestSellersFuture = _loadBestSellers();
     _bikeGarageFuture = _loadBikeGarageData();
     _authTokenFuture = AuthService().getToken();
     _loadSaleAvailability();
@@ -424,6 +528,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _handleRecentlyViewedRefresh() {
     _loadRecentlyViewedProducts();
+  }
+
+  void _handleSearchFocusChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   @override
@@ -466,6 +575,28 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<List<Product>> _loadNewArrivals() async {
+    final data = await dataManager.getNewArrivalProducts();
+    return _parseHomeProductsSafely(data).take(10).toList();
+  }
+
+  Future<List<Product>> _loadBestSellers() async {
+    final data = await dataManager.getBestSellingProducts();
+    return _parseHomeProductsSafely(data).take(10).toList();
+  }
+
+  List<Product> _parseHomeProductsSafely(List<dynamic> items) {
+    final products = <Product>[];
+    for (final item in items.whereType<Map>()) {
+      try {
+        products.add(Product.fromJson(Map<String, dynamic>.from(item)));
+      } catch (e) {
+        debugPrint("Home product parse skipped: $e");
+      }
+    }
+    return products;
+  }
+
   List<_HomeTopNavItem> _defaultTopCategoryNavigation() {
     return const [
       _HomeTopNavItem(
@@ -474,7 +605,7 @@ class _HomeScreenState extends State<HomeScreen>
         icon: Icons.motorcycle_rounded,
       ),
       _HomeTopNavItem(
-        title: "Motorcycle Accessories",
+        title: "Bike Accessories",
         key: "motorcycle_accessories",
         icon: Icons.handyman_rounded,
       ),
@@ -484,12 +615,12 @@ class _HomeScreenState extends State<HomeScreen>
         icon: Icons.sports_motorsports_rounded,
       ),
       _HomeTopNavItem(
-        title: "Luggage & Touring",
+        title: "Luggage",
         key: "luggage_touring",
         icon: Icons.luggage_rounded,
       ),
       _HomeTopNavItem(
-        title: "Helmets and Accessories",
+        title: "Helmet",
         key: "helmets_accessories",
         icon: Icons.health_and_safety_rounded,
       ),
@@ -505,14 +636,6 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     ];
   }
-
-  _HomeTopNavItem _selectedTopCategoryItem() {
-    return _defaultTopCategoryNavigation().firstWhere(
-      (item) => item.key == _selectedTopCategoryKey,
-      orElse: () => _defaultTopCategoryNavigation().first,
-    );
-  }
-
 
   Future<void> _warmBannerImages() async {
     if (!mounted) return;
@@ -1016,6 +1139,63 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _runInitialThemeAndShopByBikeIntro() async {
+    await _maybeShowInitialThemeChooser();
+    await _maybeRunShopByBikeIntroTour();
+  }
+
+  Future<void> _maybeRunShopByBikeIntroTour() async {
+    if (!mounted || _shopByBikeIntroRunning) return;
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenIntro = prefs.getBool(_shopByBikeIntroSeenKey) ?? false;
+    if (hasSeenIntro) return;
+
+    final hasCompletedThemePrompt =
+        prefs.getBool(_themePromptCompletedKey) ?? false;
+    final hasSavedTheme =
+        (prefs.getString('selected_app_theme') ?? '').trim().isNotEmpty;
+    if (!hasCompletedThemePrompt && !hasSavedTheme) return;
+
+    _shopByBikeIntroRunning = true;
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (!mounted || !_scrollController.hasClients) {
+      _shopByBikeIntroRunning = false;
+      return;
+    }
+
+    setState(() {
+      _selectedTopCategoryKey = "shop_by_bike";
+      _shopByBikeIntroTopActive = true;
+      _selectMotorcycleIntroActive = false;
+    });
+    _shopByBikeIntroController.repeat(reverse: true);
+
+    await Future<void>.delayed(const Duration(milliseconds: 1800));
+    if (!mounted) return;
+
+    await _scrollToSelectMotorcycleSection(
+      duration: const Duration(milliseconds: 1250),
+      alignment: 0.10,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _shopByBikeIntroTopActive = false;
+      _selectMotorcycleIntroActive = true;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 2200));
+    if (!mounted) return;
+
+    setState(() {
+      _selectMotorcycleIntroActive = false;
+    });
+    await _scrollToTop(duration: const Duration(milliseconds: 1150));
+    _shopByBikeIntroController.stop();
+    _shopByBikeIntroController.value = 0;
+    await prefs.setBool(_shopByBikeIntroSeenKey, true);
+    _shopByBikeIntroRunning = false;
+  }
+
   Widget _buildThemeDot(Color color) {
     return Container(
       width: 16,
@@ -1066,7 +1246,7 @@ class _HomeScreenState extends State<HomeScreen>
         });
         unawaited(_warmProductImages(newProducts));
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _maybeShowInitialThemeChooser();
+          unawaited(_runInitialThemeAndShopByBikeIntro());
         });
       }
     } catch (e) {
@@ -1077,7 +1257,7 @@ class _HomeScreenState extends State<HomeScreen>
           isInitialLoading = false;
         });
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _maybeShowInitialThemeChooser();
+          unawaited(_runInitialThemeAndShopByBikeIntro());
         });
       }
     }
@@ -1140,6 +1320,118 @@ class _HomeScreenState extends State<HomeScreen>
       context,
       MaterialPageRoute(builder: (_) => SearchResultScreen(searchQuery: query)),
     );
+  }
+
+  String _normalizeSuggestionText(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^a-z0-9]+"), " ")
+        .trim();
+  }
+
+  List<String> _suggestionTokens(String value) {
+    final normalized = _normalizeSuggestionText(value);
+    if (normalized.isEmpty) return const <String>[];
+    return normalized
+        .split(RegExp(r"\s+"))
+        .where((token) => token.length >= 2)
+        .toList(growable: false);
+  }
+
+  bool _matchesSearchSuggestion(String suggestion, String query) {
+    final normalizedSuggestion = _normalizeSuggestionText(suggestion);
+    final normalizedQuery = _normalizeSuggestionText(query);
+    if (normalizedQuery.isEmpty) return true;
+    if (normalizedSuggestion.contains(normalizedQuery)) return true;
+
+    final queryTokens = _suggestionTokens(query);
+    final suggestionTokens = _suggestionTokens(suggestion);
+    for (final queryToken in queryTokens) {
+      if (suggestionTokens.any(
+        (term) => term.contains(queryToken) || queryToken.contains(term),
+      )) {
+        return true;
+      }
+      for (final entry in _searchSuggestionAliases.entries) {
+        final aliasGroup = [entry.key, ...entry.value]
+            .map(_normalizeSuggestionText)
+            .where((term) => term.isNotEmpty)
+            .toList(growable: false);
+        final queryHitsAlias =
+            aliasGroup.any((alias) => alias.contains(queryToken)) ||
+            aliasGroup.any((alias) => queryToken.contains(alias));
+        if (!queryHitsAlias) continue;
+        if (suggestionTokens.any(aliasGroup.contains)) return true;
+      }
+    }
+
+    return false;
+  }
+
+  List<String> _searchSuggestions() {
+    final query = searchController.text.trim();
+    if (!_searchFocusNode.hasFocus && query.isEmpty) {
+      return const <String>[];
+    }
+
+    final suggestions = <String>[];
+    void addTerm(String value) {
+      final term = value.trim();
+      if (term.length < 2) return;
+      if (suggestions.any((item) => item.toLowerCase() == term.toLowerCase())) {
+        return;
+      }
+      suggestions.add(term);
+    }
+
+    for (final product in products) {
+      if (query.isNotEmpty &&
+          !_matchesSearchSuggestion(product.name, query) &&
+          !_matchesSearchSuggestion(product.sku, query)) {
+        continue;
+      }
+      addTerm(product.name);
+      if (product.sku.isNotEmpty && query.isNotEmpty) {
+        addTerm(product.sku);
+      }
+      if (suggestions.length >= 6) return suggestions;
+    }
+
+    for (final product in _recentlyViewedProducts) {
+      if (query.isNotEmpty &&
+          !_matchesSearchSuggestion(product.name, query) &&
+          !_matchesSearchSuggestion(product.sku, query)) {
+        continue;
+      }
+      addTerm(product.name);
+      if (suggestions.length >= 6) return suggestions;
+    }
+
+    for (final term in _defaultSearchSuggestions) {
+      if (_matchesSearchSuggestion(term, query)) {
+        addTerm(term);
+      }
+      if (suggestions.length >= 6) break;
+    }
+
+    if (suggestions.isEmpty && query.length >= 2) {
+      addTerm("$query accessories");
+      addTerm("$query parts");
+      addTerm("$query for bike");
+    }
+
+    return suggestions;
+  }
+
+  void _selectSearchSuggestion(String suggestion) {
+    final trimmed = suggestion.trim();
+    if (trimmed.isEmpty) return;
+    searchController.value = TextEditingValue(
+      text: trimmed,
+      selection: TextSelection.collapsed(offset: trimmed.length),
+    );
+    _handleSearchChanged(trimmed);
+    _goToSearch();
   }
 
   Future<void> _openBarcodeSearchOption() async {
@@ -1294,6 +1586,92 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildSearchSuggestionsPanel(
+    AppThemePalette palette,
+    List<String> suggestions,
+  ) {
+    if (suggestions.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      height: 38,
+      alignment: Alignment.centerLeft,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: suggestions.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 7),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Center(
+              child: Container(
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: palette.accent.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: palette.accent.withOpacity(0.24)),
+                ),
+                child: Text(
+                  "Search Suggestions",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.accent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            );
+          }
+
+          final suggestion = suggestions[index - 1];
+          return Center(
+            child: InkWell(
+              onTap: () => _selectSearchSuggestion(suggestion),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 170),
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: palette.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: palette.border.withOpacity(0.85)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.search_rounded,
+                      color: palette.textMuted,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        suggestion,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1811,20 +2189,48 @@ class _HomeScreenState extends State<HomeScreen>
         .trim();
   }
 
+  bool _opensTopCategoryDetailPage(String key) {
+    return const {
+      "motorcycle_accessories",
+      "riding_gears",
+      "luggage_touring",
+      "helmets_accessories",
+      "combos",
+    }.contains(key);
+  }
+
   void _handleTopCategoryTap(_HomeTopNavItem item) {
-    if (_selectedTopCategoryKey != item.key) {
-      setState(() {
-        _selectedTopCategoryKey = item.key;
-      });
-    }
     if (item.key == "shop_by_bike") {
+      if (_selectedTopCategoryKey != item.key) {
+        setState(() {
+          _selectedTopCategoryKey = item.key;
+        });
+      }
       _scrollToSelectMotorcycleSection();
     } else if (item.key == "events") {
+      if (_selectedTopCategoryKey != item.key) {
+        setState(() {
+          _selectedTopCategoryKey = item.key;
+        });
+      }
       _scrollToTopBrandsSection();
+    } else if (_opensTopCategoryDetailPage(item.key)) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => TopCategoryDetailScreen(
+            categoryKey: item.key,
+            title: item.title,
+            icon: item.icon,
+          ),
+        ),
+      );
     }
   }
 
-  Future<void> _scrollToSelectMotorcycleSection() async {
+  Future<void> _scrollToSelectMotorcycleSection({
+    Duration duration = const Duration(milliseconds: 520),
+    double alignment = 0.12,
+  }) async {
     for (var attempt = 0; attempt < 6; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
       if (attempt > 0) {
@@ -1833,11 +2239,11 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted || !_scrollController.hasClients) return;
       final targetContext = _selectMotorcycleSectionKey.currentContext;
       if (targetContext == null) continue;
-      Scrollable.ensureVisible(
+      await Scrollable.ensureVisible(
         targetContext,
-        duration: const Duration(milliseconds: 520),
+        duration: duration,
         curve: Curves.easeOutCubic,
-        alignment: 0.12,
+        alignment: alignment,
         alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
       );
       return;
@@ -1864,12 +2270,51 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _scrollToTop() {
+  Future<void> _scrollToTop({
+    Duration duration = const Duration(milliseconds: 520),
+  }) async {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
+    await _scrollController.animateTo(
       0,
-      duration: const Duration(milliseconds: 520),
+      duration: duration,
       curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _buildSelectMotorcycleIntroHighlight({required Widget child}) {
+    if (!_selectMotorcycleIntroActive) return child;
+    final palette = context.appPalette;
+    return AnimatedBuilder(
+      animation: _shopByBikeIntroController,
+      builder: (context, _) {
+        final pulse = _shopByBikeIntroController.value;
+        return Transform.scale(
+          scale: 1 + (pulse * 0.035),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Color.lerp(
+                palette.highlight.withOpacity(0.13),
+                palette.highlight.withOpacity(0.28),
+                pulse,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: palette.highlight.withOpacity(0.62),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: palette.highlight.withOpacity(0.18),
+                  blurRadius: 14,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -1877,33 +2322,33 @@ class _HomeScreenState extends State<HomeScreen>
     final palette = context.appPalette;
     if (items.isEmpty) return const SizedBox.shrink();
     final collapse = Curves.easeOutCubic.transform(_homeChromeCollapseProgress);
-    final expandedHeight = 70.0;
+    final expandedHeight = 50.0;
     final compactHeight = 50.0;
     final navHeight = lerpDouble(expandedHeight, compactHeight, collapse)!;
-    final itemWidth = lerpDouble(88, 112, collapse)!;
-    final itemContentHeight = lerpDouble(56, 38, collapse)!;
-    final iconOpacity = (1 - collapse).clamp(0.0, 1.0);
-    final iconSlotHeight = lerpDouble(30, 0, collapse)!;
-    final textFontSize = lerpDouble(8.5, 10.5, collapse)!;
-    final textHeight = lerpDouble(13, 18, collapse)!;
+    final itemWidth = lerpDouble(92, 106, collapse)!;
+    final itemContentHeight = 46.0;
+    final iconOpacity = (1 - (collapse * 1.25)).clamp(0.0, 1.0);
+    final iconSlotHeight = lerpDouble(22.0, 0.0, collapse)!.clamp(0.0, 22.0);
+    final textFontSize = lerpDouble(9.6, 9.8, collapse)!;
+    const textHeight = 12.0;
     final compactTextColor = Color.lerp(
-      palette.textPrimary.withOpacity(0.86),
-      Colors.white.withOpacity(0.74),
+      palette.textPrimary.withOpacity(0.74),
+      palette.textPrimary.withOpacity(0.78),
       collapse,
     )!;
     final compactSelectedTextColor = Color.lerp(
-      palette.accent,
-      Colors.white.withOpacity(0.96),
+      palette.textPrimary,
+      palette.textPrimary,
       collapse,
     )!;
     final compactSurfaceColor = Color.lerp(
-      palette.surfaceStrong.withOpacity(0.22),
-      palette.surfaceStrong.withOpacity(0.72),
+      palette.surface.withOpacity(palette.isLight ? 0.92 : 0.74),
+      palette.surfaceStrong.withOpacity(palette.isLight ? 0.82 : 0.64),
       collapse,
     )!;
     final compactBorderColor = Color.lerp(
-      palette.accent.withOpacity(0.28),
-      palette.accent.withOpacity(0.30),
+      palette.border.withOpacity(0.70),
+      palette.border.withOpacity(0.52),
       collapse,
     )!;
     return MediaQuery(
@@ -1917,6 +2362,7 @@ class _HomeScreenState extends State<HomeScreen>
           0,
         ),
         decoration: BoxDecoration(
+          borderRadius: BorderRadius.zero,
           color: compactSurfaceColor,
           border: Border(
             top: BorderSide(color: compactBorderColor),
@@ -1924,47 +2370,66 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(0),
+          borderRadius: BorderRadius.zero,
           child: Stack(
             children: [
               Positioned(
-                left: lerpDouble(20, 18, collapse)!,
-                right: lerpDouble(20, 18, collapse)!,
-                bottom: 1,
+                left: 0,
+                right: 0,
+                bottom: 0,
                 child: Container(
                   height: 1,
-                  color: palette.border.withOpacity(0.38),
+                  color: palette.border.withOpacity(0.36),
                 ),
               ),
               ListView.separated(
                 scrollDirection: Axis.horizontal,
-                padding: EdgeInsets.fromLTRB(
-                  lerpDouble(10, 12, collapse)!,
-                  0,
-                  lerpDouble(10, 12, collapse)!,
-                  0,
-                ),
+                padding: EdgeInsets.zero,
                 itemCount: items.length,
                 separatorBuilder: (_, __) =>
-                    SizedBox(width: lerpDouble(7, 8, collapse)!),
+                    SizedBox(width: lerpDouble(6, 8, collapse)!),
                 itemBuilder: (context, index) {
                   final item = items[index];
                   final isSelected = item.key == _selectedTopCategoryKey;
+                  final isIntroTarget =
+                      _shopByBikeIntroTopActive && item.key == "shop_by_bike";
                   final title = item.title;
                   return SizedBox(
                     width: itemWidth,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      curve: Curves.easeOutCubic,
-                      margin: EdgeInsets.symmetric(
-                        vertical: lerpDouble(4, 3, collapse)!,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? palette.surface.withOpacity(0.28)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
+                    child: AnimatedBuilder(
+                      animation: _shopByBikeIntroController,
+                      builder: (context, child) {
+                        final pulse =
+                            isIntroTarget ? _shopByBikeIntroController.value : 0.0;
+                        return Transform.scale(
+                          scale: 1 + (pulse * 0.045),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            curve: Curves.easeOutCubic,
+                            margin: EdgeInsets.symmetric(
+                              vertical: 1,
+                            ),
+                             decoration: BoxDecoration(
+                               color: isIntroTarget
+                                   ? Color.lerp(
+                                       palette.highlight.withOpacity(0.20),
+                                       palette.highlight.withOpacity(0.34),
+                                       pulse,
+                                     )
+                                   : Colors.transparent,
+                              borderRadius: BorderRadius.circular(18),
+                              border: isIntroTarget
+                                  ? Border.all(
+                                      color: palette.highlight.withOpacity(0.58),
+                                      width: 1.2,
+                                    )
+                                  : null,
+                              boxShadow: const [],
+                            ),
+                            child: child,
+                          ),
+                        );
+                      },
                       child: Material(
                         color: Colors.transparent,
                         borderRadius: BorderRadius.circular(18),
@@ -1973,7 +2438,7 @@ class _HomeScreenState extends State<HomeScreen>
                           borderRadius: BorderRadius.circular(18),
                           child: Padding(
                             padding: EdgeInsets.symmetric(
-                              horizontal: lerpDouble(5, 8, collapse)!,
+                              horizontal: lerpDouble(4, 6, collapse)!,
                             ),
                           child: SizedBox(
                             height: itemContentHeight,
@@ -1987,24 +2452,20 @@ class _HomeScreenState extends State<HomeScreen>
                                       opacity: iconOpacity,
                                       child: Center(
                                         child: Container(
-                                          width: 30,
-                                          height: 30,
+                                          width: 32,
+                                          height: 22,
                                           decoration: BoxDecoration(
                                             color: isSelected
-                                                ? palette.accent
-                                                : palette.surfaceStrong,
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            border: Border.all(
-                                              color: isSelected
-                                                  ? palette.accent
-                                                  : palette.border,
-                                            ),
+                                                ? palette.accent.withOpacity(
+                                                    palette.isLight ? 0.16 : 0.18,
+                                                  )
+                                                : Colors.transparent,
+                                            borderRadius: BorderRadius.circular(10),
                                           ),
                                           child: Icon(
                                             item.icon,
                                             color: isSelected
-                                                ? palette.onAccent
+                                                ? palette.accent
                                                 : palette.textPrimary,
                                             size: 17,
                                           ),
@@ -2013,9 +2474,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     ),
                                   ),
                                 ),
-                                SizedBox(
-                                  height: lerpDouble(3, 0, collapse)!,
-                                ),
+                                const SizedBox(height: 1),
                                 SizedBox(
                                   height: textHeight,
                                   child: Text(
@@ -2036,15 +2495,15 @@ class _HomeScreenState extends State<HomeScreen>
                                   ),
                                 ),
                                 SizedBox(
-                                  height: lerpDouble(3, 2, collapse)!,
+                                  height: 1,
                                 ),
                                 AnimatedContainer(
                                   duration: const Duration(milliseconds: 160),
                                   curve: Curves.easeOutCubic,
                                   width: isSelected
-                                      ? lerpDouble(42, 58, collapse)!
-                                      : 14,
-                                  height: isSelected ? 4 : 2,
+                                      ? lerpDouble(44, 52, collapse)!
+                                      : 0,
+                                  height: 3,
                                   decoration: BoxDecoration(
                                     color: isSelected
                                         ? palette.accent
@@ -2328,6 +2787,263 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildNewArrivalsSection() {
+    return _buildProductRailSection(
+      future: _newArrivalsFuture,
+      title: "New Arrivals",
+      pillText: "Latest 10",
+      icon: Icons.new_releases_rounded,
+      badgeText: "NEW",
+      accentColorBuilder: (palette) => palette.highlight,
+    );
+  }
+
+  Widget _buildBestSellersSection() {
+    return _buildProductRailSection(
+      future: _bestSellersFuture,
+      title: "Best Sellers",
+      pillText: "Top 10",
+      icon: Icons.local_fire_department_rounded,
+      badgeText: "BEST",
+      accentColorBuilder: (palette) => palette.accent,
+    );
+  }
+
+  Widget _buildProductRailSection({
+    required Future<List<Product>> future,
+    required String title,
+    required String pillText,
+    required IconData icon,
+    required String badgeText,
+    required Color Function(AppThemePalette palette) accentColorBuilder,
+  }) {
+    final palette = context.appPalette;
+    final accentColor = accentColorBuilder(palette);
+    return FutureBuilder<List<Product>>(
+      future: future,
+      builder: (context, snapshot) {
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
+        final items = snapshot.data ?? const <Product>[];
+        if (!isLoading && items.isEmpty) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: accentColor.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: accentColor.withOpacity(0.28),
+                      ),
+                    ),
+                    child: Icon(
+                      icon,
+                      color: accentColor,
+                      size: 17,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: palette.surface,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: palette.border),
+                    ),
+                    child: Text(
+                      pillText,
+                      style: TextStyle(
+                        color: palette.accent,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: 178,
+              child: isLoading
+                  ? ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: 5,
+                      separatorBuilder: (_, __) => const SizedBox(width: 10),
+                      itemBuilder: (_, __) => const SkeletonBox(
+                        width: 124,
+                        height: 168,
+                        radius: 14,
+                      ),
+                    )
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      cacheExtent: 360,
+                      itemCount: items.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 10),
+                      itemBuilder: (context, index) {
+                        final product = items[index];
+                        return _buildHomeProductRailCard(
+                          product,
+                          palette,
+                          badgeText,
+                          accentColor,
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHomeProductRailCard(
+    Product product,
+    AppThemePalette palette,
+    String badgeText,
+    Color badgeColor,
+  ) {
+    return SizedBox(
+      width: 126,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ProductDetailScreen(product: product),
+              ),
+            ).then((_) => _loadRecentlyViewedProducts());
+          },
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: palette.border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.10),
+                  blurRadius: 9,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(14),
+                      ),
+                      child: SizedBox(
+                        height: 94,
+                        width: double.infinity,
+                        child: AppCachedImage(
+                          url: product.image,
+                          fit: BoxFit.contain,
+                          memCacheWidth: _homeProductImageCacheWidth,
+                          maxWidthDiskCache: _homeProductImageCacheWidth,
+                          filterQuality: FilterQuality.low,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 7,
+                      left: 7,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: badgeColor,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          badgeText,
+                          style: TextStyle(
+                            color: palette.onAccent,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(9, 7, 9, 0),
+                  child: Text(
+                    product.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 11.5,
+                      height: 1.15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(9, 4, 9, 9),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "₹${product.price}",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: palette.accent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        color: palette.textMuted,
+                        size: 14,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTopBrandsAutoCarousel(List<dynamic> categories) {
     if (categories.isEmpty) return const SizedBox.shrink();
     final palette = context.appPalette;
@@ -2537,8 +3253,12 @@ class _HomeScreenState extends State<HomeScreen>
     _titleAnimController.dispose();
     _cartPulseController.dispose();
     _searchCtaController.dispose();
+    _shopByBikeIntroController.dispose();
     _scrollController.removeListener(_handleHomeScroll);
     _scrollController.dispose();
+    _searchFocusNode.removeListener(_handleSearchFocusChanged);
+    _searchFocusNode.dispose();
+    _dailySaleCountdownTimer?.cancel();
     searchController.dispose();
     _debounce?.cancel();
     _internetRetryTimer?.cancel();
@@ -2828,13 +3548,19 @@ class _HomeScreenState extends State<HomeScreen>
     final headerTopPadding = lerpDouble(8, 4, collapse)!;
     final headerGap = lerpDouble(7, 0, collapse)!;
     final topCategoryNavHeight =
-        lerpDouble(70, 50, collapse)! + lerpDouble(0, 2, collapse)!;
+        50.0 + lerpDouble(0, 2, collapse)!;
     const overflowGuard = 6.0;
+    final searchSuggestions = _searchSuggestions();
+    final showSearchSuggestions =
+        searchSuggestions.isNotEmpty &&
+        (_searchFocusNode.hasFocus || searchController.text.trim().isNotEmpty);
+    final searchSuggestionHeight = showSearchSuggestions ? 43.0 : 0.0;
     final appBarHeight =
         headerTopPadding +
         (logoRowHeight * (1 - collapse)) +
         headerGap +
         lerpDouble(48, 46, collapse)! +
+        searchSuggestionHeight +
         headerGap +
         (commerceStripHeight * (1 - collapse)) +
         (commerceToCategoryGap * (1 - collapse)) +
@@ -3181,6 +3907,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 child: TextField(
                   controller: searchController,
+                  focusNode: _searchFocusNode,
                   onChanged: _handleSearchChanged,
                   style: TextStyle(
                     color: palette.textPrimary,
@@ -3272,6 +3999,8 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
               ),
+              if (showSearchSuggestions)
+                _buildSearchSuggestionsPanel(palette, searchSuggestions),
               SizedBox(height: headerGap),
               _buildScrollCollapsingChild(
                 expandedHeight: commerceStripHeight,
@@ -3386,22 +4115,6 @@ class _HomeScreenState extends State<HomeScreen>
       controller: _scrollController,
       cacheExtent: 900,
       slivers: [
-        if (_selectedTopCategoryKey == "motorcycle_accessories" ||
-            _selectedTopCategoryKey == "riding_gears" ||
-            _selectedTopCategoryKey == "luggage_touring" ||
-            _selectedTopCategoryKey == "helmets_accessories" ||
-            _selectedTopCategoryKey == "combos")
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-              child: TopCategoryInlineSection(
-                categoryKey: _selectedTopCategoryItem().key,
-                title: _selectedTopCategoryItem().title,
-                icon: _selectedTopCategoryItem().icon,
-              ),
-            ),
-          ),
-
         /// 1. Top Section (Banner)
         SliverToBoxAdapter(
           child: Column(
@@ -3508,7 +4221,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
             ],
           ),
         ),
@@ -3519,65 +4232,67 @@ class _HomeScreenState extends State<HomeScreen>
             child: Builder(
               builder: (context) {
                 final offerLink = _extractOfferLink(offerText);
-                return Container(
-                  height: 44,
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: offerLink == null ? null : _openOfferLink,
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: palette.surface,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: offerLink == null
-                                ? palette.border
-                                : palette.accent.withOpacity(0.6),
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x22000000),
-                              blurRadius: 12,
-                              offset: Offset(0, 6),
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 15, 16, 1),
+                  child: SizedBox(
+                    height: 44,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: offerLink == null ? null : _openOfferLink,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: palette.surface,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: offerLink == null
+                                  ? palette.border
+                                  : palette.accent.withOpacity(0.6),
                             ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.local_offer_rounded,
-                              color: palette.accent,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Marquee(
-                                text: offerText,
-                                style: TextStyle(
-                                  color: palette.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  decoration: offerLink == null
-                                      ? TextDecoration.none
-                                      : TextDecoration.underline,
-                                  decorationColor: palette.accent,
-                                ),
-                                scrollAxis: Axis.horizontal,
-                                blankSpace: 50.0,
-                                velocity: 30.0,
-                              ),
-                            ),
-                            if (offerLink != null) ...[
-                              const SizedBox(width: 8),
-                              Icon(
-                                Icons.open_in_new_rounded,
-                                color: palette.accent,
-                                size: 16,
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x22000000),
+                                blurRadius: 12,
+                                offset: Offset(0, 6),
                               ),
                             ],
-                          ],
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.local_offer_rounded,
+                                color: palette.accent,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Marquee(
+                                  text: offerText,
+                                  style: TextStyle(
+                                    color: palette.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                    decoration: offerLink == null
+                                        ? TextDecoration.none
+                                        : TextDecoration.underline,
+                                    decorationColor: palette.accent,
+                                  ),
+                                  scrollAxis: Axis.horizontal,
+                                  blankSpace: 50.0,
+                                  velocity: 30.0,
+                                ),
+                              ),
+                              if (offerLink != null) ...[
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.open_in_new_rounded,
+                                  color: palette.accent,
+                                  size: 16,
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -3592,7 +4307,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 10),
+              const SizedBox(height: 1),
               FutureBuilder<_HomeCategorySectionData>(
                 future: _categorySectionFuture,
                 builder: (context, snapshot) {
@@ -3630,7 +4345,6 @@ class _HomeScreenState extends State<HomeScreen>
 
                   final sectionWidgets = <Widget>[];
                   sectionWidgets.add(_buildSaleButtons());
-                  sectionWidgets.add(_buildRecentlyViewedSection());
 
                   if (topBrandCategories.isNotEmpty) {
                     sectionWidgets.add(
@@ -3649,6 +4363,9 @@ class _HomeScreenState extends State<HomeScreen>
                     sectionWidgets.add(
                       _buildTopBrandsAutoCarousel(topBrandCategories),
                     );
+                    sectionWidgets.add(_buildNewArrivalsSection());
+                    sectionWidgets.add(_buildBestSellersSection());
+                    sectionWidgets.add(_buildRecentlyViewedSection());
                   }
 
                   sectionWidgets.add(
@@ -3656,9 +4373,11 @@ class _HomeScreenState extends State<HomeScreen>
                       key: _selectMotorcycleSectionKey,
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
                       child: Center(
-                        child: _buildAnimatedHeading(
-                          "SELECT YOUR MOTORCYCLE",
-                          fontSize: 18,
+                        child: _buildSelectMotorcycleIntroHighlight(
+                          child: _buildAnimatedHeading(
+                            "SELECT YOUR MOTORCYCLE",
+                            fontSize: 18,
+                          ),
                         ),
                       ),
                     ),
@@ -3953,11 +4672,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildSaleButtons() {
     final palette = context.appPalette;
     final saleCards = <Widget>[
-      _buildSaleButton(
-        title: "Daily Sale",
-        subtitle: _dailySaleEnabled ? "Today picks" : "Currently disabled",
-        icon: Icons.bolt_rounded,
-        colors: _themeSaleCardColors(palette, 0),
+      _buildDailySaleCountdownCard(
         isEnabled: _dailySaleEnabled,
         onTap: () {
           Navigator.push(
@@ -4028,12 +4743,16 @@ class _HomeScreenState extends State<HomeScreen>
         itemCount: saleCards.length,
         itemBuilder: (context, index, realIndex) {
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: saleCards[index],
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            child: SizedBox(
+              height: _saleCardHeight,
+              width: double.infinity,
+              child: saleCards[index],
+            ),
           );
         },
         options: CarouselOptions(
-          height: 110,
+          height: _saleCardHeight + 12,
           viewportFraction: 0.50,
           autoPlay: true,
           autoPlayInterval: const Duration(seconds: 3),
@@ -4045,6 +4764,170 @@ class _HomeScreenState extends State<HomeScreen>
           padEnds: false,
           scrollPhysics: const BouncingScrollPhysics(),
         ),
+      ),
+    );
+  }
+
+  DateTime _dailySaleStart(DateTime now) =>
+      DateTime(now.year, now.month, now.day, 10);
+
+  DateTime _dailySaleEnd(DateTime now) =>
+      DateTime(now.year, now.month, now.day, 19);
+
+  bool get _isDailySaleLive {
+    final now = _dailySaleClock;
+    return !now.isBefore(_dailySaleStart(now)) &&
+        now.isBefore(_dailySaleEnd(now));
+  }
+
+  Duration _dailySaleCountdownDuration() {
+    final now = _dailySaleClock;
+    final todayStart = _dailySaleStart(now);
+    final todayEnd = _dailySaleEnd(now);
+    if (now.isBefore(todayStart)) {
+      return todayStart.difference(now);
+    }
+    if (now.isBefore(todayEnd)) {
+      return todayEnd.difference(now);
+    }
+    return todayStart.add(const Duration(days: 1)).difference(now);
+  }
+
+  String _formatDailySaleCountdown(Duration duration) {
+    final safeDuration = duration.isNegative ? Duration.zero : duration;
+    final hours = safeDuration.inHours;
+    final minutes = safeDuration.inMinutes.remainder(60);
+    final seconds = safeDuration.inSeconds.remainder(60);
+    String twoDigits(int value) => value.toString().padLeft(2, "0");
+    return "${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}";
+  }
+
+  Widget _buildDailySaleCountdownCard({
+    required bool isEnabled,
+    required VoidCallback onTap,
+  }) {
+    final palette = context.appPalette;
+    final colors = _themeSaleCardColors(palette, 0);
+    final activeColors = colors.length >= 2
+        ? colors
+        : [palette.accentStrong, palette.highlight];
+    final disabledColors = [palette.surfaceSoft, palette.surfaceStrong];
+    final isLive = isEnabled && _isDailySaleLive;
+    final cardColors = isEnabled ? activeColors : disabledColors;
+    final baseTextColor =
+        cardColors.first.computeLuminance() > 0.45 ? Colors.black : Colors.white;
+    final textColor = isEnabled ? baseTextColor : palette.textMuted;
+    final mutedColor = isEnabled
+        ? baseTextColor.withOpacity(baseTextColor == Colors.black ? 0.72 : 0.84)
+        : palette.textMuted;
+    final countdownText = _formatDailySaleCountdown(
+      _dailySaleCountdownDuration(),
+    );
+    final countdownLabel = isLive ? "Ends in" : "Starts in";
+
+    return SizedBox(
+      height: _saleCardHeight,
+      child: InkWell(
+        onTap: isLive ? onTap : null,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+        padding: const EdgeInsets.fromLTRB(11, 9, 11, 9),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: cardColors,
+          ),
+          border: Border.all(
+            color: isEnabled
+                ? Colors.white.withOpacity(0.26)
+                : palette.border.withOpacity(0.70),
+            width: 1.1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: cardColors.first.withOpacity(isEnabled ? 0.28 : 0.08),
+              blurRadius: 14,
+              offset: const Offset(0, 7),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.bolt_rounded, color: textColor, size: 15),
+                const SizedBox(width: 3),
+                Flexible(
+                  child: Text(
+                    "Daily Sale",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 12.8,
+                      height: 1,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isEnabled ? "50% OFF" : "CLOSED",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 18,
+                height: 1,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              isEnabled ? countdownLabel : "Currently disabled",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: mutedColor,
+                fontSize: 9.5,
+                height: 1,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(
+                  baseTextColor == Colors.black ? 0.10 : 0.22,
+                ),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withOpacity(0.22)),
+              ),
+              child: Text(
+                isEnabled ? countdownText : "--:--:--",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 14,
+                  height: 1,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
       ),
     );
   }
@@ -4161,6 +5044,29 @@ class _HomeScreenState extends State<HomeScreen>
                               color: palette.highlight.computeLuminance() > 0.45
                                   ? Colors.black
                                   : Colors.white,
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (product.priceDropped)
+                      Positioned(
+                        top: product.discountPercent > 0 ? 36 : 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2F6BFF),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            "DROP",
+                            style: TextStyle(
+                              color: Colors.white,
                               fontSize: 8.5,
                               fontWeight: FontWeight.w900,
                             ),
@@ -4425,6 +5331,29 @@ class _HomeScreenState extends State<HomeScreen>
                                     palette.highlight.computeLuminance() > 0.45
                                         ? Colors.black
                                         : Colors.white,
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (product.priceDropped)
+                        Positioned(
+                          top: product.discountPercent > 0 ? 36 : 8,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2F6BFF),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              "DROP",
+                              style: TextStyle(
+                                color: Colors.white,
                                 fontSize: 8.5,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -4820,12 +5749,13 @@ class _HomeScreenState extends State<HomeScreen>
         ? (activeTextColor == Colors.black ? Colors.white : cardColors.first)
         : palette.textMuted;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Ink(
-        height: 100,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    return SizedBox(
+      height: _saleCardHeight,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
           gradient: LinearGradient(
@@ -4926,6 +5856,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
           ],
         ),
+      ),
       ),
     );
   }

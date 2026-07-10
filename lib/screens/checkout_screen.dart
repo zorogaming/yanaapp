@@ -1397,6 +1397,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             Config.razorpayKeyId)
         .toString()
         .trim();
+    final offerId = (requestData["offer_id"] ??
+            requestData["razorpay_offer_id"] ??
+            requestData["offerId"] ??
+            "")
+        .toString()
+        .trim();
 
     if (razorpayOrderId.isEmpty || keyId.isEmpty) {
       return const RazorpayPaymentResult(
@@ -1412,6 +1418,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       name: "${firstNameController.text} ${lastNameController.text}".trim(),
       email: emailController.text.trim(),
       phone: completePhoneNumber.trim(),
+      offerId: offerId,
     );
   }
 

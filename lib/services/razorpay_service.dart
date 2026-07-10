@@ -39,6 +39,7 @@ class RazorpayService {
     required String email,
     required String phone,
     String description = "Yanaworldwide Order",
+    String offerId = "",
   }) async {
     final normalizedName = name.trim().isEmpty ? "Customer" : name.trim();
     final normalizedEmail = email.trim().isEmpty
@@ -82,6 +83,9 @@ class RazorpayService {
       "send_sms_hash": true,
       "theme": {"color": "#1E3A8A"},
     };
+    if (offerId.trim().isNotEmpty) {
+      options["offer_id"] = offerId.trim();
+    }
 
     try {
       _razorpay.open(options);

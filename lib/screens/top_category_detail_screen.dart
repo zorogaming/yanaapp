@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -164,306 +163,126 @@ class TopCategoryDetailScreen extends StatelessWidget {
     final remoteSource = remoteSourceFor(categoryKey);
 
     return Scaffold(
-      backgroundColor: palette.background,
-      body: ListView(
-        padding: EdgeInsets.zero,
+      backgroundColor:
+          palette.isLight ? const Color(0xFFF1F3F6) : palette.background,
+      body: Column(
         children: [
           _TopCategoryHomeHeader(title: title),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
               children: [
-                if (remoteSource != null)
-                  MotorcycleAccessoriesRemoteTabs(
-                    sourceUrl: remoteSource.sourceUrl,
-                    cacheKeyPrefix: remoteSource.cacheKeyPrefix,
-                    emptyMessage: remoteSource.emptyMessage,
-                  ),
-                if (remoteSource == null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: palette.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: palette.border),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (remoteSource != null)
+                        MotorcycleAccessoriesRemoteTabs(
+                          sourceUrl: remoteSource.sourceUrl,
+                          cacheKeyPrefix: remoteSource.cacheKeyPrefix,
+                          emptyMessage: remoteSource.emptyMessage,
+                        ),
+                      if (remoteSource == null) ...[
                         Container(
-                          width: 58,
-                          height: 58,
+                          padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
-                            color: palette.accent,
+                            color: palette.surface,
                             borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: palette.border),
                           ),
-                          child: Icon(icon, color: palette.onAccent, size: 30),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          content.heading,
-                          style: TextStyle(
-                            color: palette.textPrimary,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          content.description,
-                          style: TextStyle(
-                            color: palette.textMuted,
-                            fontSize: 14,
-                            height: 1.45,
-                            fontWeight: FontWeight.w500,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 58,
+                                height: 58,
+                                decoration: BoxDecoration(
+                                  color: palette.accent,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Icon(
+                                  icon,
+                                  color: palette.onAccent,
+                                  size: 30,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                content.heading,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                content.description,
+                                style: TextStyle(
+                                  color: palette.textMuted,
+                                  fontSize: 14,
+                                  height: 1.45,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                ],
-                if (remoteSource == null && content.points.isNotEmpty) ...[
-                  const SizedBox(height: 18),
-                  Text(
-                    "Details",
-                    style: TextStyle(
-                      color: palette.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  ...content.points.map(
-                    (point) => Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: palette.surfaceSoft,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: palette.border),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            color: palette.accent,
-                            size: 20,
+                      if (remoteSource == null && content.points.isNotEmpty) ...[
+                        const SizedBox(height: 18),
+                        Text(
+                          "Details",
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              point,
-                              style: TextStyle(
-                                color: palette.textPrimary,
-                                fontSize: 14,
-                                height: 1.35,
-                                fontWeight: FontWeight.w600,
-                              ),
+                        ),
+                        const SizedBox(height: 10),
+                        ...content.points.map(
+                          (point) => Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: palette.surfaceSoft,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: palette.border),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  color: palette.accent,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    point,
+                                    style: TextStyle(
+                                      color: palette.textPrimary,
+                                      fontSize: 14,
+                                      height: 1.35,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      ],
+                    ],
                   ),
-                ],
+                ),
               ],
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildMotorcycleAccessoriesTabs(
-    BuildContext context,
-    AppThemePalette palette,
-  ) {
-    return FutureBuilder<List<MotorcycleAccessoryTab>>(
-      future: _fetchMotorcycleAccessoryTabs(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildMotorcycleTabsShell(
-            palette: palette,
-            child: SizedBox(
-              height: 230,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: 3,
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemBuilder: (_, __) => Container(
-                  width: 145,
-                  decoration: BoxDecoration(
-                    color: palette.surface.withOpacity(0.65),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
-
-        final items = sortMotorcycleTabsByPhotos(
-          snapshot.data ?? const <MotorcycleAccessoryTab>[],
-        );
-        if (items.isEmpty) {
-          return _buildMotorcycleTabsShell(
-            palette: palette,
-            child: Text(
-              "motorcycleaccessories.txt me data add karo.",
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.92),
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          );
-        }
-
-        return _buildMotorcycleTabsShell(
-          palette: palette,
-          child: SizedBox(
-            height: 245,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (context, index) {
-                return _buildMotorcycleAccessoryCard(context, items[index]);
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildMotorcycleTabsShell({
-    required AppThemePalette palette,
-    required Widget child,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF8328F5),
-            Color(0xFFA35DF7),
-            Color(0xFFC798FA),
-          ],
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [child],
-      ),
-    );
-  }
-
-  Widget _buildMotorcycleAccessoryCard(
-    BuildContext context,
-    MotorcycleAccessoryTab item,
-  ) {
-    return SizedBox(
-      width: 150,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: item.children.isNotEmpty
-              ? () => _showModelsSheet(context, item)
-              : item.link.isEmpty
-                  ? null
-                  : () => _openLink(item.link),
-          borderRadius: BorderRadius.circular(18),
-          child: Ink(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: AppCachedImage(
-                      url: item.imageUrl,
-                      height: 132,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF6B6B6B),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    item.children.isNotEmpty
-                        ? "${item.children.length} Models"
-                        : item.link.isEmpty
-                            ? "View Details"
-                            : "View Store",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF2C2C2C),
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<List<MotorcycleAccessoryTab>> _fetchMotorcycleAccessoryTabs() async {
-    try {
-      final response = await http
-          .get(Uri.parse(motorcycleAccessoriesUrl))
-          .timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200) return const [];
-      return parseMotorcycleAccessoryTabs(
-        utf8.decode(response.bodyBytes, allowMalformed: true),
-      );
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<void> _openLink(String rawUrl) async {
-    final value = rawUrl.trim();
-    final uri = Uri.tryParse(
-      value.startsWith("/")
-          ? "https://yanaworldwide.store$value"
-          : value,
-    );
-    if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  void _showModelsSheet(BuildContext context, MotorcycleAccessoryTab item) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _MotorcycleModelsSheet(item: item),
     );
   }
 }
@@ -473,198 +292,64 @@ class _TopCategoryHomeHeader extends StatelessWidget {
 
   final String title;
 
-  static const List<String> _bannerUrls = [
-    "https://yanaworldwide.store/wp-content/uploads/slider-1.jpg",
-    "https://yanaworldwide.store/wp-content/uploads/slider-2.jpg",
-    "https://yanaworldwide.store/wp-content/uploads/slider-3.jpg",
-  ];
-
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     return Container(
       padding: EdgeInsets.fromLTRB(
-        16,
-        MediaQuery.of(context).padding.top + 8,
-        16,
-        16,
+        12,
+        MediaQuery.of(context).padding.top + 10,
+        12,
+        10,
       ),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [palette.heroStart, palette.heroEnd, palette.background],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomCenter,
-        ),
+        color: palette.background,
+        border: Border(bottom: BorderSide(color: palette.border)),
       ),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  width: 168,
-                  height: 60,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  decoration: BoxDecoration(
-                    color: palette.surface,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: palette.border),
-                    boxShadow: [
-                      BoxShadow(
-                        color: palette.accent.withOpacity(0.08),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Image.asset(
-                    "assets/icon/icon.png",
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              Icon(
-                Icons.account_balance_wallet_outlined,
-                color: palette.accent,
-                size: 19,
-              ),
-              const SizedBox(width: 16),
-              Text(
-                "Login",
-                style: TextStyle(
-                  color: palette.textPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  "|",
+          IconButton(
+            tooltip: "Back",
+            onPressed: () => Navigator.maybePop(context),
+            icon: Icon(
+              Icons.arrow_back_rounded,
+              color: palette.textPrimary,
+            ),
+            style: IconButton.styleFrom(
+              backgroundColor: palette.surface,
+              side: BorderSide(color: palette.border),
+              fixedSize: const Size(42, 42),
+              minimumSize: const Size(42, 42),
+              padding: EdgeInsets.zero,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: palette.accent,
-                    fontSize: 12,
+                    color: palette.textPrimary,
+                    fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-              ),
-              Text(
-                "Signup",
-                style: TextStyle(
-                  color: palette.accent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Icon(
-                Icons.shopping_cart_rounded,
-                color: palette.textPrimary,
-                size: 20,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            height: 52,
-            decoration: BoxDecoration(
-              color: palette.surface,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: palette.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(palette.isLight ? 0.08 : 0.35),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: Icon(Icons.search_rounded, color: palette.accent),
-                ),
-                Expanded(
-                  child: Text(
-                    "Search parts, SKU, model, brand...",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: palette.textMuted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: palette.accent,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      color: palette.onAccent,
-                      size: 21,
-                    ),
+                const SizedBox(height: 2),
+                Text(
+                  "Select category to view products",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: palette.accent.withOpacity(0.78),
-                width: 1.8,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: palette.accent.withOpacity(0.16),
-                  blurRadius: 18,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: CarouselSlider(
-                options: CarouselOptions(
-                  height: 180,
-                  autoPlay: true,
-                  viewportFraction: 1.0,
-                  autoPlayInterval: const Duration(seconds: 4),
-                ),
-                items: _bannerUrls.map((url) {
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      AppCachedImage(url: url, fit: BoxFit.cover),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.white.withOpacity(0.06),
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.10),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
-              ),
             ),
           ),
         ],
@@ -679,11 +364,13 @@ class TopCategoryInlineSection extends StatelessWidget {
     required this.categoryKey,
     required this.title,
     required this.icon,
+    this.onClose,
   });
 
   final String categoryKey;
   final String title;
   final IconData icon;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -701,6 +388,7 @@ class TopCategoryInlineSection extends StatelessWidget {
         sourceUrl: remoteSource.sourceUrl,
         cacheKeyPrefix: remoteSource.cacheKeyPrefix,
         emptyMessage: remoteSource.emptyMessage,
+        onClose: onClose,
       );
     }
 
@@ -712,21 +400,25 @@ class TopCategoryInlineSection extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: palette.border),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: palette.accent,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, color: palette.onAccent, size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: palette.accent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: palette.onAccent, size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: onClose == null ? 0 : 30),
+                  child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -750,8 +442,32 @@ class TopCategoryInlineSection extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
+                  ),
+                ),
+              ),
+            ],
           ),
+          if (onClose != null)
+            Positioned(
+              top: -7,
+              right: -7,
+              child: IconButton(
+                tooltip: "Close",
+                onPressed: onClose,
+                icon: Icon(
+                  Icons.close_rounded,
+                  color: palette.textPrimary,
+                  size: 18,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: palette.surface.withOpacity(0.88),
+                  minimumSize: const Size(30, 30),
+                  fixedSize: const Size(30, 30),
+                  padding: EdgeInsets.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -764,11 +480,13 @@ class MotorcycleAccessoriesRemoteTabs extends StatefulWidget {
     required this.sourceUrl,
     required this.cacheKeyPrefix,
     required this.emptyMessage,
+    this.onClose,
   });
 
   final String sourceUrl;
   final String cacheKeyPrefix;
   final String emptyMessage;
+  final VoidCallback? onClose;
 
   @override
   State<MotorcycleAccessoriesRemoteTabs> createState() =>
@@ -793,18 +511,19 @@ class _MotorcycleAccessoriesRemoteTabsState
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildShell(
             palette: palette,
-            child: SizedBox(
-              height: 216,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: 3,
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemBuilder: (_, __) => Container(
-                  width: 145,
+            onClose: widget.onClose,
+            child: Column(
+              children: List.generate(
+                3,
+                (index) => Container(
+                  height: 178,
+                  margin: EdgeInsets.only(bottom: index == 2 ? 0 : 12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.65),
+                    color: palette.surface,
                     borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: palette.border),
                   ),
+                  child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
             ),
@@ -817,6 +536,7 @@ class _MotorcycleAccessoriesRemoteTabsState
         if (items.isEmpty) {
           return _buildShell(
             palette: palette,
+            onClose: widget.onClose,
             child: Text(
               widget.emptyMessage,
               style: TextStyle(
@@ -830,6 +550,7 @@ class _MotorcycleAccessoriesRemoteTabsState
 
         return _buildShell(
           palette: palette,
+          onClose: widget.onClose,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -856,19 +577,13 @@ class _MotorcycleAccessoriesRemoteTabsState
     final models = sortMotorcycleTabsByPhotos(item.children);
     return Container(
       width: double.infinity,
-      margin: EdgeInsets.only(bottom: isLast ? 0 : 10),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       decoration: BoxDecoration(
         color: palette.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: palette.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(palette.isLight ? 0.08 : 0.22),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: const [],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -882,11 +597,12 @@ class _MotorcycleAccessoriesRemoteTabsState
                   item.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 21,
-                    fontWeight: FontWeight.w900,
-                  ),
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 17,
+                      letterSpacing: 0,
+                      fontWeight: FontWeight.w900,
+                    ),
                 ),
               ),
               Container(
@@ -895,13 +611,14 @@ class _MotorcycleAccessoriesRemoteTabsState
                   vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: palette.accent.withOpacity(0.14),
+                  color: const Color(0xFFE8F0FF),
                   borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFC8D8FF)),
                 ),
                 child: Text(
                   "${models.length} items",
                   style: TextStyle(
-                    color: palette.accent,
+                    color: const Color(0xFF2B63D9),
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
                   ),
@@ -920,16 +637,27 @@ class _MotorcycleAccessoriesRemoteTabsState
               ),
             )
           else
-            SizedBox(
-              height: 148,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: models.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, index) {
-                  return _buildModelBox(context, models[index], palette);
-                },
-              ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = models.length <= 4 ? 2 : 3;
+                const gap = 10.0;
+                final cardWidth =
+                    (constraints.maxWidth - (gap * (columns - 1))) / columns;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (final model in models)
+                      _buildModelBox(
+                        context,
+                        model,
+                        palette,
+                        width: cardWidth,
+                        height: columns == 2 ? 144 : 132,
+                      ),
+                  ],
+                );
+              },
             ),
         ],
       ),
@@ -943,9 +671,9 @@ class _MotorcycleAccessoriesRemoteTabsState
       width: 42,
       height: 42,
       decoration: BoxDecoration(
-        color: palette.accent.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: palette.accent.withOpacity(0.22)),
+        color: palette.isLight ? const Color(0xFFF5F7FA) : palette.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: palette.border),
       ),
       child: hasImage
           ? ClipRRect(
@@ -959,8 +687,8 @@ class _MotorcycleAccessoriesRemoteTabsState
               child: Text(
                 item.title.isEmpty ? "?" : item.title.substring(0, 1),
                 style: TextStyle(
-                  color: palette.accent,
-                  fontSize: 19,
+                  color: const Color(0xFF2B63D9),
+                  fontSize: 18,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -971,12 +699,15 @@ class _MotorcycleAccessoriesRemoteTabsState
   Widget _buildModelBox(
     BuildContext context,
     MotorcycleAccessoryTab model,
-    AppThemePalette palette,
-  ) {
+    AppThemePalette palette, {
+    required double width,
+    required double height,
+  }) {
     final hasImage = model.imageUrl.trim().toLowerCase().startsWith("http");
     final categoryId = model.categoryId;
     return SizedBox(
-      width: 112,
+      width: width,
+      height: height,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -995,21 +726,13 @@ class _MotorcycleAccessoriesRemoteTabsState
               : model.link.isEmpty
                   ? null
                   : () => _openLink(model.link),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           child: Ink(
             decoration: BoxDecoration(
               color: palette.surface,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(color: palette.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(
-                    palette.isLight ? 0.06 : 0.18,
-                  ),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              boxShadow: const [],
             ),
             child: Column(
               children: [
@@ -1018,21 +741,23 @@ class _MotorcycleAccessoriesRemoteTabsState
                     width: double.infinity,
                     margin: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
-                      color: palette.surfaceSoft,
-                      borderRadius: BorderRadius.circular(12),
+                      color: palette.isLight
+                          ? const Color(0xFFF6F7F9)
+                          : palette.background.withOpacity(0.34),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: hasImage
                         ? ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(8),
                             child: AppCachedImage(
                               url: model.imageUrl,
-                              fit: BoxFit.cover,
+                              fit: BoxFit.contain,
                             ),
                           )
                         : Icon(
                             Icons.two_wheeler_rounded,
-                            color: palette.accent.withOpacity(0.82),
-                            size: 34,
+                            color: const Color(0xFF2B63D9).withOpacity(0.72),
+                            size: 30,
                           ),
                   ),
                 ),
@@ -1045,8 +770,8 @@ class _MotorcycleAccessoriesRemoteTabsState
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: palette.textPrimary,
-                      fontSize: 11.5,
-                      height: 1.04,
+                      fontSize: width > 130 ? 12 : 10.8,
+                      height: 1.08,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1062,26 +787,47 @@ class _MotorcycleAccessoriesRemoteTabsState
   static Widget _buildShell({
     required AppThemePalette palette,
     required Widget child,
+    VoidCallback? onClose,
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
+      padding: EdgeInsets.zero,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            palette.heroStart,
-            palette.heroEnd,
-            palette.surfaceSoft,
-          ],
-        ),
-        border: Border.all(color: palette.border),
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [child],
+      child: Stack(
+        children: [
+          Padding(
+            padding: EdgeInsets.only(top: onClose == null ? 0 : 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [child],
+            ),
+          ),
+          if (onClose != null)
+            Positioned(
+              top: -7,
+              right: -7,
+              child: IconButton(
+                tooltip: "Close",
+                onPressed: onClose,
+                icon: Icon(
+                  Icons.close_rounded,
+                  color: palette.textPrimary,
+                  size: 18,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: palette.surface.withOpacity(0.88),
+                  minimumSize: const Size(30, 30),
+                  fixedSize: const Size(30, 30),
+                  padding: EdgeInsets.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1392,79 +1138,4 @@ String _normalizeCategoryKey(String value) {
       .replaceAll(RegExp(r"[^a-z0-9]+"), " ")
       .trim()
       .replaceAll(RegExp(r"\s+"), " ");
-}
-
-class _MotorcycleModelsSheet extends StatelessWidget {
-  const _MotorcycleModelsSheet({required this.item});
-
-  final MotorcycleAccessoryTab item;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.appPalette;
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 520),
-      decoration: BoxDecoration(
-        color: palette.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    item.title,
-                    style: TextStyle(
-                      color: palette.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: Icon(Icons.close_rounded, color: palette.textPrimary),
-                ),
-              ],
-            ),
-          ),
-          Flexible(
-            child: ListView.separated(
-              shrinkWrap: true,
-              padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
-              itemCount: item.children.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final child = item.children[index];
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: palette.surfaceSoft,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: palette.border),
-                  ),
-                  child: Text(
-                    child.title,
-                    style: TextStyle(
-                      color: palette.textPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

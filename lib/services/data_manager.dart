@@ -15,6 +15,12 @@ class DataManager {
   static const String topBrandsVersionKey = "top_brands_version";
   static const String topBrandCategoriesKey = "top_brand_categories";
   static const String topBrandCategoriesVersionKey = "top_brand_categories_version";
+  static const String newArrivalProductsKey = "new_arrival_products";
+  static const String newArrivalProductsVersionKey =
+      "new_arrival_products_version";
+  static const String bestSellingProductsKey = "best_selling_products";
+  static const String bestSellingProductsVersionKey = "best_selling_products_version";
+  static const String productPriceSnapshotKey = "product_price_snapshot_v1";
   static const int homeLatestProductsLimit = 10;
   static const String bikeGarageSelectedKey = "bike_garage_selected_bike";
   static const String bikeGarageOptionsKey = "bike_garage_options";
@@ -31,13 +37,14 @@ class DataManager {
 
     // 🔥 If pagination or search → direct API (NO CACHE)
     if (page > 1 || (search != null && search.isNotEmpty)) {
-      return await api.fetchProducts(
+      final data = await api.fetchProducts(
         perPage: homeLatestProductsLimit,
         page: page,
         search: search,
         orderBy: "date",
         order: "desc",
       );
+      return annotateProductsWithPriceDrops(data);
     }
 
     // 🔥 First check cache
@@ -71,13 +78,92 @@ class DataManager {
       String serverProcVersion =
           procResponse.statusCode == 200 ? procResponse.body.trim() : "1";
 
-      await prefs.setString(homeProductsKey, jsonEncode(freshData));
+      final annotatedData = await annotateProductsWithPriceDrops(freshData);
+      await prefs.setString(homeProductsKey, jsonEncode(annotatedData));
       await prefs.setString(homeProcVersionKey, serverProcVersion);
 
-      return freshData;
+      return annotatedData;
     } catch (e) {
       print("Home fetch error: $e");
       return [];
+    }
+  }
+
+  Future<List<dynamic>> getBestSellingProducts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString(bestSellingProductsKey);
+    final savedVersion = prefs.getString(bestSellingProductsVersionKey);
+
+    if (cached != null) {
+      try {
+        final serverVersion = await api.fetchAppVersion();
+        if (serverVersion == null || serverVersion == savedVersion) {
+          return List<dynamic>.from(jsonDecode(cached) as List);
+        }
+      } catch (_) {
+        return List<dynamic>.from(jsonDecode(cached) as List);
+      }
+    }
+
+    return _fetchAndCacheBestSellingProducts();
+  }
+
+  Future<List<dynamic>> getNewArrivalProducts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString(newArrivalProductsKey);
+    final savedVersion = prefs.getString(newArrivalProductsVersionKey);
+
+    if (cached != null) {
+      try {
+        final serverVersion = await api.fetchAppVersion();
+        if (serverVersion == null || serverVersion == savedVersion) {
+          return List<dynamic>.from(jsonDecode(cached) as List);
+        }
+      } catch (_) {
+        return List<dynamic>.from(jsonDecode(cached) as List);
+      }
+    }
+
+    return _fetchAndCacheNewArrivalProducts();
+  }
+
+  Future<List<dynamic>> _fetchAndCacheNewArrivalProducts() async {
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      final freshData = await api.fetchProducts(
+        perPage: 10,
+        page: 1,
+        orderBy: "date",
+        order: "desc",
+      );
+      final serverVersion = await api.fetchAppVersion() ?? "1";
+      final annotatedData = await annotateProductsWithPriceDrops(freshData);
+      await prefs.setString(newArrivalProductsKey, jsonEncode(annotatedData));
+      await prefs.setString(newArrivalProductsVersionKey, serverVersion);
+      return annotatedData;
+    } catch (e) {
+      print("New arrival products fetch error: $e");
+      return const [];
+    }
+  }
+
+  Future<List<dynamic>> _fetchAndCacheBestSellingProducts() async {
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      final freshData = await api.fetchProducts(
+        perPage: 10,
+        page: 1,
+        orderBy: "popularity",
+        order: "desc",
+      );
+      final serverVersion = await api.fetchAppVersion() ?? "1";
+      final annotatedData = await annotateProductsWithPriceDrops(freshData);
+      await prefs.setString(bestSellingProductsKey, jsonEncode(annotatedData));
+      await prefs.setString(bestSellingProductsVersionKey, serverVersion);
+      return annotatedData;
+    } catch (e) {
+      print("Best selling products fetch error: $e");
+      return const [];
     }
   }
 
@@ -275,12 +361,13 @@ class DataManager {
       final freshData =
           await api.fetchProducts(page: 1, categoryId: categoryId);
       final serverProcVersion = await _fetchProcVersion();
+      final annotatedData = await annotateProductsWithPriceDrops(freshData);
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(cacheKey, jsonEncode(freshData));
+      await prefs.setString(cacheKey, jsonEncode(annotatedData));
       await prefs.setString(versionKey, serverProcVersion);
 
-      return freshData;
+      return annotatedData;
     } catch (e) {
       print("Category fetch error: $e");
       return [];
@@ -326,13 +413,16 @@ class DataManager {
         perPage: perPage,
       );
       final serverVersion = await _fetchProcVersion();
+      final annotatedData = await _annotateSaleCollectionWithPriceDrops(
+        freshData,
+      );
 
       if (page == 1 && perPage <= 50) {
-        await prefs.setString(cacheKey, jsonEncode(freshData));
+        await prefs.setString(cacheKey, jsonEncode(annotatedData));
         await prefs.setString(versionKey, serverVersion);
       }
 
-      return freshData;
+      return annotatedData;
     } catch (e) {
       print("Sale collection fetch error: $e");
       if (cachedData != null && cachedData.isNotEmpty) {
@@ -355,6 +445,82 @@ class DataManager {
 
   String _saleCollectionVersionKey(String collectionKey) =>
       "$saleCollectionVersionPrefix$collectionKey";
+
+  Future<List<dynamic>> annotateProductsWithPriceDrops(
+    List<dynamic> items,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final previousSnapshot = _decodePriceSnapshot(
+      prefs.getString(productPriceSnapshotKey),
+    );
+    final nextSnapshot = Map<String, double>.from(previousSnapshot);
+    final annotated = <dynamic>[];
+
+    for (final item in items) {
+      if (item is! Map) {
+        annotated.add(item);
+        continue;
+      }
+
+      final map = Map<String, dynamic>.from(item);
+      final id = (map["id"] ?? "").toString().trim();
+      final currentPrice = _productPriceValue(map);
+      final previousPrice = id.isEmpty ? null : previousSnapshot[id];
+
+      if (id.isNotEmpty &&
+          currentPrice != null &&
+          currentPrice > 0 &&
+          previousPrice != null &&
+          previousPrice > currentPrice) {
+        map["_yana_price_drop"] = true;
+        map["_yana_previous_price"] = previousPrice;
+      } else {
+        map.remove("_yana_price_drop");
+        map.remove("_yana_previous_price");
+      }
+
+      if (id.isNotEmpty && currentPrice != null && currentPrice > 0) {
+        nextSnapshot[id] = currentPrice;
+      }
+      annotated.add(map);
+    }
+
+    await prefs.setString(productPriceSnapshotKey, jsonEncode(nextSnapshot));
+    return annotated;
+  }
+
+  Future<Map<String, dynamic>> _annotateSaleCollectionWithPriceDrops(
+    Map<String, dynamic> collection,
+  ) async {
+    final items = collection["items"];
+    if (items is! List) return collection;
+    final annotatedItems = await annotateProductsWithPriceDrops(items);
+    return Map<String, dynamic>.from(collection)..["items"] = annotatedItems;
+  }
+
+  Map<String, double> _decodePriceSnapshot(String? raw) {
+    if (raw == null || raw.isEmpty) return <String, double>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return <String, double>{};
+      return decoded.map((key, value) {
+        final parsed = double.tryParse((value ?? "").toString());
+        return MapEntry(key.toString(), parsed ?? 0);
+      })..removeWhere((_, value) => value <= 0);
+    } catch (_) {
+      return <String, double>{};
+    }
+  }
+
+  double? _productPriceValue(Map<String, dynamic> item) {
+    final raw = _firstNonEmpty([
+      item["price"],
+      item["sale_price"],
+      item["regular_price"],
+    ]);
+    if (raw.isEmpty) return null;
+    return double.tryParse(raw.replaceAll(",", "").trim());
+  }
 
   List<dynamic> _mergeCategoryProducts({
     required List<dynamic> cachedItems,
