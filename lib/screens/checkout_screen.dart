@@ -22,6 +22,7 @@ import '../services/payu_service.dart';
 import '../services/razorpay_service.dart';
 import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_cached_image.dart';
 import 'order_success_screen.dart';
 
 import 'package:intl_phone_field/intl_phone_field.dart';
@@ -79,6 +80,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String selectedStateName = "";
   String completePhoneNumber = "";
   String initialPhoneNumber = "";
+  String _customerEmailFallback = "";
   List<Map<String, String>> _savedAddresses = const <Map<String, String>>[];
   String _selectedSavedAddressKey = "";
   bool _isAddingNewAddress = false;
@@ -440,6 +442,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         .join("|");
     return [
       "snapmint",
+      "fee-v2",
       finalAmount.toStringAsFixed(2),
       itemKey,
     ].join("::");
@@ -697,12 +700,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final userId = int.tryParse(userIdRaw ?? "");
       final authService = AuthService();
       final fallbackEmail = await authService.getUserEmail();
+      _customerEmailFallback = await _resolveCheckoutEmailFallback(fallbackEmail);
 
       if (userId == null) {
         if (!mounted) return;
-        if (fallbackEmail != null && fallbackEmail.isNotEmpty) {
+        if (_customerEmailFallback.isNotEmpty) {
           setState(() {
-            emailController.text = fallbackEmail;
+            emailController.text = _customerEmailFallback;
           });
         }
         await _loadSavedAddresses();
@@ -711,6 +715,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       final customer = await api.getCustomer(userId);
       if (customer == null || !mounted) {
+        if (_customerEmailFallback.isNotEmpty &&
+            emailController.text.trim().isEmpty) {
+          setState(() {
+            emailController.text = _customerEmailFallback;
+          });
+        }
         await _loadSavedAddresses();
         return;
       }
@@ -722,6 +732,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           .toString();
       final email = (billing["email"] ?? customer["email"] ?? fallbackEmail ?? "")
           .toString();
+      if (email.trim().isNotEmpty) {
+        _customerEmailFallback = email.trim();
+      }
       final phone = (billing["phone"] ?? "").toString();
       final address1 = (billing["address_1"] ?? "").toString();
       final address2 = (billing["address_2"] ?? "").toString();
@@ -773,6 +786,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Map<String, String> _buildAddressEntryFromCurrentForm() {
     return <String, String>{
+      'email': emailController.text.trim(),
       'first_name': firstNameController.text.trim(),
       'last_name': lastNameController.text.trim(),
       'address_1': addressController.text.trim(),
@@ -828,6 +842,49 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     ].where((part) => part.isNotEmpty).join(', ');
   }
 
+  bool _looksLikeEmail(String value) {
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim());
+  }
+
+  Future<String> _resolveCheckoutEmailFallback(String? authEmail) async {
+    final directEmail = (authEmail ?? "").trim();
+    if (_looksLikeEmail(directEmail)) return directEmail;
+
+    final prefs = await SharedPreferences.getInstance();
+    final lastLogin = (prefs.getString("last_login_identifier") ?? "").trim();
+    if (_looksLikeEmail(lastLogin)) return lastLogin;
+
+    return directEmail;
+  }
+
+  void _applyAddressEntryToFields(Map<String, String> entry) {
+    final savedEmail = (entry['email'] ?? '').trim();
+    final fallbackEmail = _customerEmailFallback.trim();
+    if (savedEmail.isNotEmpty) {
+      emailController.text = savedEmail;
+    } else if (emailController.text.trim().isEmpty && fallbackEmail.isNotEmpty) {
+      emailController.text = fallbackEmail;
+    }
+    firstNameController.text = entry['first_name'] ?? '';
+    lastNameController.text = entry['last_name'] ?? '';
+    addressController.text = entry['address_1'] ?? '';
+    apartmentController.text = entry['address_2'] ?? '';
+    cityController.text = entry['city'] ?? '';
+    pinController.text = entry['postcode'] ?? '';
+    selectedCountryCode = (entry['country_code'] ?? 'IN').isEmpty
+        ? 'IN'
+        : (entry['country_code'] ?? 'IN');
+    selectedCountryName = (entry['country_name'] ?? 'India').isEmpty
+        ? 'India'
+        : (entry['country_name'] ?? 'India');
+    selectedStateName = entry['state'] ?? '';
+    completePhoneNumber = entry['phone'] ?? '';
+    initialPhoneNumber = _extractPhoneForInput(
+      completePhoneNumber,
+      selectedCountryCode,
+    );
+  }
+
   String _normalizePaymentFailureMessage(
     String rawMessage, {
     required String gatewayLabel,
@@ -879,6 +936,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         _isAddingNewAddress = true;
       } else if (_selectedSavedAddressKey.isEmpty) {
         _selectedSavedAddressKey = _addressEntryKey(parsed.first);
+        _applyAddressEntryToFields(parsed.first);
         _isAddingNewAddress = false;
       }
     });
@@ -955,24 +1013,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (_selectedSavedAddressKey == removeKey) {
         if (remaining.isNotEmpty) {
           final nextEntry = remaining.first;
-          firstNameController.text = nextEntry['first_name'] ?? '';
-          lastNameController.text = nextEntry['last_name'] ?? '';
-          addressController.text = nextEntry['address_1'] ?? '';
-          apartmentController.text = nextEntry['address_2'] ?? '';
-          cityController.text = nextEntry['city'] ?? '';
-          pinController.text = nextEntry['postcode'] ?? '';
-          selectedCountryCode = (nextEntry['country_code'] ?? 'IN').isEmpty
-              ? 'IN'
-              : (nextEntry['country_code'] ?? 'IN');
-          selectedCountryName = (nextEntry['country_name'] ?? 'India').isEmpty
-              ? 'India'
-              : (nextEntry['country_name'] ?? 'India');
-          selectedStateName = nextEntry['state'] ?? '';
-          completePhoneNumber = nextEntry['phone'] ?? '';
-          initialPhoneNumber = _extractPhoneForInput(
-            completePhoneNumber,
-            selectedCountryCode,
-          );
+          _applyAddressEntryToFields(nextEntry);
           _selectedSavedAddressKey = _addressEntryKey(nextEntry);
           _isAddingNewAddress = false;
         } else {
@@ -988,24 +1029,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   void _applySavedAddress(Map<String, String> entry) {
     setState(() {
-      firstNameController.text = entry['first_name'] ?? '';
-      lastNameController.text = entry['last_name'] ?? '';
-      addressController.text = entry['address_1'] ?? '';
-      apartmentController.text = entry['address_2'] ?? '';
-      cityController.text = entry['city'] ?? '';
-      pinController.text = entry['postcode'] ?? '';
-      selectedCountryCode = (entry['country_code'] ?? 'IN').isEmpty
-          ? 'IN'
-          : (entry['country_code'] ?? 'IN');
-      selectedCountryName = (entry['country_name'] ?? 'India').isEmpty
-          ? 'India'
-          : (entry['country_name'] ?? 'India');
-      selectedStateName = entry['state'] ?? '';
-      completePhoneNumber = entry['phone'] ?? '';
-      initialPhoneNumber = _extractPhoneForInput(
-        completePhoneNumber,
-        selectedCountryCode,
-      );
+      _applyAddressEntryToFields(entry);
       _selectedSavedAddressKey = _addressEntryKey(entry);
       _isAddingNewAddress = false;
     });
@@ -1169,6 +1193,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     }
     return digits;
+  }
+
+  Widget _buildCheckoutPhoneField({String labelText = 'Phone Number *'}) {
+    return IntlPhoneField(
+      key: ValueKey(
+        "${selectedCountryCode}_$initialPhoneNumber",
+      ),
+      decoration: InputDecoration(
+        labelText: labelText,
+        border: const OutlineInputBorder(),
+      ),
+      initialCountryCode: selectedCountryCode,
+      initialValue: initialPhoneNumber,
+      onChanged: (phone) {
+        completePhoneNumber = phone.completeNumber;
+      },
+      validator: (phone) {
+        if (phone == null || phone.number.length < 10) {
+          return "Invalid phone";
+        }
+        return null;
+      },
+    );
   }
 
   String _normalizeStateForUi(String rawState, String countryName) {
@@ -1763,7 +1810,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final double maxWalletUsable = walletAllowedByBill && !walletBanned
         ? walletBalance.clamp(0, afterCouponAmount).toDouble()
         : 0.0;
-    final double walletUsedAmount = walletEnabled ? maxWalletUsable : 0.0;
+    final bool walletAvailableForPayment =
+        selectedPaymentOption != "snapmint";
+    final double walletUsedAmount = walletEnabled && walletAvailableForPayment
+        ? maxWalletUsable
+        : 0.0;
     double baseFinalAmount = afterCouponAmount - walletUsedAmount;
     if (baseFinalAmount < 0) {
       baseFinalAmount = 0.0;
@@ -1814,6 +1865,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 totalAmount: finalAmount,
                 couponCode: isCouponApplied ? appliedCouponCode : "",
                 walletUsedAmount: walletUsedAmount,
+                snapmintProcessingCharge: snapmintProcessingCharge,
                 cashbackThreshold: _cashbackEnabled ? _cashbackSpendAmount : 0.0,
                 cashbackRewardAmount: _cashbackEnabled ? _cashbackRewardAmount : 0.0,
                 cashbackEligibleAmount: cashbackEligibleAmount,
@@ -1862,6 +1914,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         setState(() => isLoading = false);
 
         if (!paymentSuccess) {
+          _clearCachedSnapmintPendingOrder();
           await AnalyticsService.instance.logPaymentStatus(
             orderId: orderId,
             status: "payment_not_completed",
@@ -2257,6 +2310,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         setState(() => isLoading = false);
 
         if (!paymentResult.success) {
+          _clearCachedRazorpayPendingOrder();
+          if (pendingOrderId != null && pendingOrderId > 0) {
+            await api.cancelUnpaidOrder(
+              orderId: pendingOrderId,
+              reason: "razorpay_not_completed",
+              paymentMethod: "razorpay",
+            );
+          }
           final failureMessage = _normalizePaymentFailureMessage(
             paymentResult.failureReason,
             gatewayLabel: "Razorpay",
@@ -2552,6 +2613,345 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
+  Widget _buildCheckoutSteps(AppThemePalette palette) {
+    Widget crumb(String label, bool active) {
+      return Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: active ? palette.accent : palette.textMuted,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.2,
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+      decoration: BoxDecoration(
+        color: palette.surfaceStrong,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        children: [
+          crumb("SHOPPING CART", false),
+          Icon(Icons.chevron_right_rounded, color: palette.textMuted, size: 16),
+          crumb("CHECKOUT", true),
+          Icon(Icons.chevron_right_rounded, color: palette.textMuted, size: 16),
+          crumb("CONFIRMATION", false),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSnapmintEmiPanel({
+    required AppThemePalette palette,
+    required double finalAmount,
+    required double processingCharge,
+  }) {
+    final orderValue = finalAmount;
+    final downPayment = (orderValue * 0.25).ceilToDouble();
+    final restAmount = (orderValue - downPayment).clamp(0, double.infinity);
+    const snapmintTeal = Color(0xFF075D68);
+    const snapmintMuted = Color(0xFF6F9098);
+    const lightMint = Color(0xFFE8FBFF);
+    const snapmintFooter = Color(0xFFD8F7FF);
+    const optionBg = Color(0xFFFFFFFF);
+    const optionBorder = Color(0xFFDCE7EA);
+    const snapmintLime = Color(0xFF9BEE1F);
+
+    Widget feature(IconData icon, String title, String subtitle) {
+      return Expanded(
+        child: Column(
+          children: [
+            Icon(icon, size: 18, color: snapmintTeal),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: snapmintTeal,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: snapmintMuted,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget optionCard(String option, int months, bool highlighted) {
+      final monthlyAmount = months == 3
+          ? downPayment
+          : (restAmount / months).ceilToDouble();
+      return Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 6),
+              child: Text(
+                option,
+                style: TextStyle(
+                  color: snapmintMuted,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.topCenter,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(8, 20, 8, 10),
+                  decoration: BoxDecoration(
+                    color: optionBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: optionBorder),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        "\u20B9${monthlyAmount.toStringAsFixed(0)}",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: snapmintTeal,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Divider(
+                        height: 18,
+                        color: optionBorder,
+                      ),
+                      Text(
+                        "x $months months",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: snapmintTeal,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  top: -9,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: snapmintLime,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      "0% EMI",
+                      style: TextStyle(
+                        color: Color(0xFF0D5200),
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8, bottom: 12),
+      decoration: BoxDecoration(
+        color: lightMint,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFC7EEF6)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.bolt_rounded,
+                        color: snapmintLime,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        "snapmint",
+                        style: TextStyle(
+                          color: snapmintTeal,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    "Pay only \u20B9${downPayment.toStringAsFixed(0)}",
+                    style: TextStyle(
+                      color: snapmintTeal,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    "as downpayment now",
+                    style: TextStyle(
+                      color: snapmintTeal,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      feature(Icons.percent_rounded, "0% Interest", "Installments"),
+                      feature(Icons.currency_rupee_rounded, "0 Extra", "Cost"),
+                      feature(Icons.credit_card_rounded, "UPI & Cards", "accepted"),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      color: optionBg,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: optionBorder),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "Total Order Value",
+                            style: TextStyle(
+                              color: snapmintMuted,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          "\u20B9${orderValue.toStringAsFixed(0)}",
+                          style: TextStyle(
+                            color: const Color(0xFF111111),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (processingCharge > 0) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "Processing charge included",
+                            style: TextStyle(
+                              color: snapmintMuted,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          "+ \u20B9${processingCharge.toStringAsFixed(2)}",
+                          style: TextStyle(
+                            color: const Color(0xFF111111),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              color: snapmintFooter,
+              child: Column(
+                children: [
+                  Text(
+                    "& pay the rest in...",
+                    style: TextStyle(
+                      color: snapmintTeal,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      optionCard("OPTION 01", 3, true),
+                      const SizedBox(width: 8),
+                      optionCard("OPTION 02", 6, false),
+                      const SizedBox(width: 8),
+                      optionCard("OPTION 03", 9, false),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    "Estimated prices only. Final amount may slightly change on Snapmint.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: snapmintMuted,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
@@ -2564,7 +2964,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final double maxWalletUsable = walletAllowedByBill && !walletBanned
         ? walletBalance.clamp(0, afterCouponAmount).toDouble()
         : 0.0;
-    final double walletUsedAmount = walletEnabled ? maxWalletUsable : 0.0;
+    final bool walletAvailableForPayment =
+        selectedPaymentOption != "snapmint";
+    final double walletUsedAmount = walletEnabled && walletAvailableForPayment
+        ? maxWalletUsable
+        : 0.0;
     double baseFinalAmount = afterCouponAmount - walletUsedAmount;
     if (baseFinalAmount < 0) {
       baseFinalAmount = 0.0;
@@ -2611,40 +3015,42 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: palette.surface,
+          fillColor: palette.surfaceStrong,
           labelStyle: TextStyle(color: palette.textMuted),
           hintStyle: TextStyle(color: palette.textMuted),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(8),
             borderSide: BorderSide(color: palette.border),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(8),
             borderSide: BorderSide(color: palette.accent, width: 1.2),
           ),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(8),
             borderSide: BorderSide(color: palette.border),
           ),
         ),
       ),
       child: Scaffold(
         backgroundColor: palette.background,
-        appBar: AppBar(
-          backgroundColor: palette.surface,
-          elevation: 0,
+          appBar: AppBar(
+            backgroundColor: palette.accent,
+          surfaceTintColor: palette.accent,
+          elevation: 1,
+          shadowColor: Colors.black26,
           title: Text(
             "Checkout",
             style: TextStyle(
-              color: palette.textPrimary,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
+              color: palette.onAccent,
+              fontWeight: FontWeight.w800,
+              fontSize: 17,
             ),
           ),
-          iconTheme: IconThemeData(color: palette.textPrimary),
+          iconTheme: IconThemeData(color: palette.onAccent),
           actions: [
             IconButton(
-              icon: const Icon(Icons.home),
+              icon: Icon(Icons.home, color: palette.onAccent),
               onPressed: () {
                 Navigator.popUntil(context, (route) => route.isFirst);
               },
@@ -2658,33 +3064,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               children: [
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 16),
                     child: Form(
                       key: _formKey,
                       child: Container(
                     decoration: BoxDecoration(
                       color: palette.surface,
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: palette.border),
                       boxShadow: [
                         BoxShadow(
-                          color: Color(0x14000000),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
                         ),
                       ],
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            "Contact Information",
+                          _buildCheckoutSteps(palette),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.local_shipping_outlined,
+                                color: palette.accent,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 7),
+                              Text(
+                            "Shipping Address",
                             style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
+                                  color: palette.textPrimary,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 10),
                           TextFormField(
@@ -2909,12 +3328,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                        color: palette.textMuted,
                                        height: 1.4,
                                      ),
-                                   ),
-                                 ],
-                               ),
-                             ),
-                             const SizedBox(height: 20),
-                            ] else if (!_isAddressBootstrapLoading) ...[
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              _buildCheckoutPhoneField(
+                                labelText: 'Contact Number *',
+                              ),
+                              const SizedBox(height: 20),
+                             ] else if (!_isAddressBootstrapLoading) ...[
                              const Text(
                                "Shipping Address",
                                style: TextStyle(
@@ -3021,26 +3444,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                    v!.length < 6 ? "Invalid PIN" : null,
                              ),
                              const SizedBox(height: 10),
-                             IntlPhoneField(
-                               key: ValueKey(
-                                 "${selectedCountryCode}_$initialPhoneNumber",
-                               ),
-                               decoration: const InputDecoration(
-                                 labelText: 'Phone Number *',
-                                 border: OutlineInputBorder(),
-                               ),
-                               initialCountryCode: selectedCountryCode,
-                               initialValue: initialPhoneNumber,
-                               onChanged: (phone) {
-                                 completePhoneNumber = phone.completeNumber;
-                               },
-                               validator: (phone) {
-                                 if (phone == null || phone.number.length < 10) {
-                                   return "Invalid phone";
-                                 }
-                                 return null;
-                               },
-                             ),
+                              _buildCheckoutPhoneField(),
                              const SizedBox(height: 20),
                               SizedBox(
                                 width: double.infinity,
@@ -3119,7 +3523,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               const SizedBox(width: 10),
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: checkoutAccent,
+                                  backgroundColor: palette.accent,
                                   foregroundColor: palette.onAccent,
                                   elevation: 0,
                                   shape: RoundedRectangleBorder(
@@ -3278,7 +3682,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                     fontSize: 12,
                                   ),
                                 ),
-                                if (walletBanned)
+                                if (selectedPaymentOption == "snapmint")
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      "Wallet discount is not available with Snapmint.",
+                                      style: TextStyle(
+                                        color: palette.accent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  )
+                                else if (walletBanned)
                                   const Padding(
                                     padding: EdgeInsets.only(top: 6),
                                     child: Text(
@@ -3300,8 +3716,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   ),
                                 const SizedBox(height: 6),
                                 CheckboxListTile(
-                                  value: walletEnabled,
-                                  onChanged: (walletBanned || !walletAllowedByBill || maxWalletUsable <= 0 || walletLoading)
+                                  value: selectedPaymentOption == "snapmint"
+                                      ? false
+                                      : walletEnabled,
+                                  onChanged: (selectedPaymentOption == "snapmint" ||
+                                          walletBanned ||
+                                          !walletAllowedByBill ||
+                                          maxWalletUsable <= 0 ||
+                                          walletLoading)
                                       ? null
                                       : (value) {
                                           setState(() {
@@ -3405,11 +3827,92 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 Text(
                                   "Order Summary",
                                   style: TextStyle(
-                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
                                     color: palette.textPrimary,
                                   ),
                                 ),
                                 const SizedBox(height: 10),
+                                ...cart.items.take(4).map((item) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 52,
+                                          height: 52,
+                                          padding: const EdgeInsets.all(5),
+                                          decoration: BoxDecoration(
+                                            color: palette.surfaceStrong,
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: palette.border,
+                                            ),
+                                          ),
+                                          child: AppCachedImage(
+                                            url: item.image,
+                                            fit: BoxFit.contain,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 9),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.name,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: palette.textPrimary,
+                                                  fontSize: 12,
+                                                  height: 1.15,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                "Qty ${item.quantity}",
+                                                style: TextStyle(
+                                                  color: palette.textMuted,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          "\u20B9${(item.price * item.quantity).toStringAsFixed(0)}",
+                                          style: TextStyle(
+                                            color: palette.textPrimary,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                                if (cart.items.length > 4)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Text(
+                                      "+ ${cart.items.length - 4} more item${cart.items.length - 4 == 1 ? '' : 's'}",
+                                      style: TextStyle(
+                                        color: palette.accent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                Divider(color: palette.border),
+                                const SizedBox(height: 4),
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
@@ -3590,11 +4093,133 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           const SizedBox(height: 20),
 
                           // --- Payment Options ---
-                          const Text(
-                            "Select Payment Option",
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+                            decoration: BoxDecoration(
+                              color: palette.surfaceStrong,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: palette.border),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        "Total Amount",
+                                        style: TextStyle(
+                                          color: palette.accent,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Icon(
+                                        Icons.keyboard_arrow_down_rounded,
+                                        color: palette.accent,
+                                        size: 20,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  "\u20B9${finalAmount.toStringAsFixed(0)}",
+                                  style: TextStyle(
+                                    color: palette.accent,
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+                            decoration: BoxDecoration(
+                              color: palette.success.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: palette.success.withOpacity(0.22),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.local_offer_outlined,
+                                  color: palette.success,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        discountAmount > 0
+                                            ? "\u20B9${discountAmount.toStringAsFixed(0)} Off"
+                                            : "Payment offers available",
+                                        style: TextStyle(
+                                          color: palette.success,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        "Claim offers with online payment options",
+                                        style: TextStyle(
+                                          color: palette.success,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                CircleAvatar(
+                                  radius: 18,
+                                  backgroundColor: palette.surface,
+                                  child: Text(
+                                    "+3",
+                                    style: TextStyle(
+                                      color: palette.textPrimary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.lock_outline_rounded,
+                                color: palette.accent,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 7),
+                              Text(
+                                "Payment Method",
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Choose how you want to pay for this order.",
                             style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                              color: palette.textMuted,
+                              fontSize: 12,
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -3627,14 +4252,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               vertical: 4,
                             ),
                             title: Text(
-                              "Prepaid Full Payment",
+                              "UPI / Credit / Debit / ATM Card",
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 color: palette.textPrimary,
                               ),
                             ),
                             subtitle: Text(
-                              "Pay \u20B9${baseFinalAmount.toStringAsFixed(2)} now",
+                              "Pay by UPI, cards, wallet or netbanking\nGet offers on prepaid payment",
                               style: TextStyle(
                                 color: selectedPaymentOption == "full"
                                     ? palette.textPrimary
@@ -3699,7 +4324,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               ),
                             ),
                             subtitle: Text(
-                              "Pay \u20B9${advanceAmount.toStringAsFixed(2)} now\nRemaining \u20B9${remainingAmount.toStringAsFixed(2)} on Delivery",
+                              "Pay \u20B9${advanceAmount.toStringAsFixed(2)} now\nRemaining \u20B9${remainingAmount.toStringAsFixed(2)} on delivery",
                               style: TextStyle(
                                 color: selectedPaymentOption == "partial"
                                     ? palette.textPrimary
@@ -3793,14 +4418,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               vertical: 4,
                             ),
                             title: Text(
-                              "Snapmint EMI (Buy Now Pay Later)",
+                              "EMI",
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 color: palette.textPrimary,
                               ),
                             ),
                             subtitle: Text(
-                              "Easy Monthly Installments Available",
+                              "Credit card EMI and Snapmint monthly payments",
                               style: TextStyle(
                                 color: selectedPaymentOption == "snapmint"
                                     ? palette.textPrimary
@@ -3811,20 +4436,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               setState(() {
                                 selectedPaymentOption = value!;
                                 selectedOnlineGateway = "payu";
+                                walletEnabled = false;
+                                _clearCachedCashfreePendingOrder();
+                                _clearCachedRazorpayPendingOrder();
                               });
                             },
-                          ),
-                          // 🆕 ADDED TEXT HERE
-                          const Padding(
-                            padding: EdgeInsets.only(left: 18.0, bottom: 10),
-                            child: Text(
-                              "Snapmint 0% EMIs • Easy Returns • 3 Monthly Payments",
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
                           ),
                           if (selectedPaymentOption == "full" ||
                               selectedPaymentOption == "partial") ...[
@@ -3885,33 +4501,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               ],
                             ),
                           ],
-                          // 🏍️ STEP 2 — EMI estimate (Updated)
                           if (selectedPaymentOption == "snapmint")
-                            Padding(
-                              padding: const EdgeInsets.only(
-                                left: 12,
-                                bottom: 10,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    "3 Months EMI: ₹${(finalAmount / 3).toStringAsFixed(0)} / month",
-                                    style: const TextStyle(
-                                      color: Colors.green,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "6 Months EMI: ₹${(finalAmount / 6).toStringAsFixed(0)} / month",
-                                    style: const TextStyle(
-                                      color: Colors.green,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            _buildSnapmintEmiPanel(
+                              palette: palette,
+                              finalAmount: finalAmount,
+                              processingCharge: snapmintProcessingCharge,
                             ),
                           const SizedBox(height: 80), // Space for fixed button
                         ],
@@ -3927,16 +4521,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 final safeBottom = MediaQuery.of(context).viewPadding.bottom;
                 return Container(
                   padding: EdgeInsets.fromLTRB(
-                    16,
-                    16,
-                    16,
-                    16 + (safeBottom > 0 ? safeBottom : 8),
+                    10,
+                    10,
+                    10,
+                    10 + (safeBottom > 0 ? safeBottom : 6),
                   ),
                   decoration: BoxDecoration(
                     color: palette.surface,
                     border: Border(top: BorderSide(color: palette.border)),
                     boxShadow: [
-                      const BoxShadow(color: Color(0x1A000000), blurRadius: 12),
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.10),
+                        blurRadius: 14,
+                        offset: const Offset(0, -4),
+                      ),
                     ],
                   ),
                   child: LayoutBuilder(
@@ -3952,20 +4550,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "Grand Total",
+                            selectedPaymentOption == "partial"
+                                ? "Pay now"
+                                : selectedPaymentOption == "cod"
+                                ? "Pay on delivery"
+                                : "Grand Total",
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 11,
                               color: palette.textMuted,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                           FittedBox(
                             fit: BoxFit.scaleDown,
                             child: Text(
-                              "\u20B9${finalAmount.toStringAsFixed(2)}",
+                              "\u20B9${(selectedPaymentOption == "partial" ? currentPayableAmount : finalAmount).toStringAsFixed(2)}",
                               style: TextStyle(
                                 fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: palette.accent,
+                                fontWeight: FontWeight.w900,
+                                color: palette.textPrimary,
                               ),
                             ),
                           ),
@@ -3996,11 +4599,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         width: compact ? double.infinity : null,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: palette.accent,
-                            foregroundColor: palette.onAccent,
+                            backgroundColor: palette.highlight,
+                            foregroundColor:
+                                palette.highlight.computeLuminance() > 0.45
+                                    ? Colors.black
+                                    : Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                           ),
                           onPressed: isLoading ? null : startPayment,
@@ -4012,7 +4618,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                       width: 18,
                                       height: 18,
                                       child: CircularProgressIndicator(
-                                        color: palette.onAccent,
+                                        color: palette.highlight
+                                                    .computeLuminance() >
+                                                0.45
+                                            ? Colors.black
+                                            : Colors.white,
                                         strokeWidth: 2.4,
                                       ),
                                     ),
@@ -4021,22 +4631,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                       "PROCESSING...",
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
-                                        color: palette.onAccent,
+                                        color: palette.highlight
+                                                    .computeLuminance() >
+                                                0.45
+                                            ? Colors.black
+                                            : Colors.white,
                                       ),
                                     ),
                                   ],
                                 )
                               : Text(
-                                  selectedPaymentOption == "snapmint"
-                                      ? "PROCEED"
-                                      : selectedPaymentOption == "cod"
-                                      ? "PLACE ORDER"
-                                      : selectedPaymentOption == "partial"
-                                      ? "PAY ADVANCE \u20B9${currentPayableAmount.toStringAsFixed(0)}"
-                                      : "PAY NOW",
+                                   selectedPaymentOption == "snapmint"
+                                       ? "PROCEED"
+                                       : selectedPaymentOption == "cod"
+                                       ? "PLACE ORDER"
+                                       : selectedPaymentOption == "partial"
+                                       ? "PAY ADVANCE \u20B9${currentPayableAmount.toStringAsFixed(0)}"
+                                      : "PROCEED TO PAY",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    color: palette.onAccent,
+                                    color: palette.highlight.computeLuminance() >
+                                            0.45
+                                        ? Colors.black
+                                        : Colors.white,
                                   ),
                                 ),
                         ),

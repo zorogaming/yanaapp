@@ -38,6 +38,12 @@ class AuthService {
         _lastLoginIdentifierKey,
         username.trim().toLowerCase(),
       );
+      final loginEmail = _extractEmail(data);
+      if (loginEmail != null && loginEmail.isNotEmpty) {
+        await prefs.setString("user_email", loginEmail);
+      } else if (_looksLikeEmail(username)) {
+        await prefs.setString("user_email", username.trim().toLowerCase());
+      }
       if (resolvedUserId != null && resolvedUserId.isNotEmpty) {
         await prefs.setString("user_id", resolvedUserId);
       }
@@ -74,8 +80,12 @@ class AuthService {
   }
 
   Future<String?> getUserEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = (prefs.getString("user_email") ?? "").trim();
+    if (_looksLikeEmail(savedEmail)) return savedEmail;
+
     final token = await getToken();
-    if (token == null || token.isEmpty) return null;
+    if (token == null || token.isEmpty) return _lastLoginEmail(prefs);
 
     try {
       final decoded = JwtDecoder.decode(token);
@@ -86,16 +96,43 @@ class AuthService {
               ? ((decoded["data"] as Map)["user"] as Map)["email"]
               : null);
       if (rawEmail == null) {
-        return _fetchUserEmailFromProfileApi(token);
+        return await _fetchUserEmailFromProfileApi(token) ??
+            _lastLoginEmail(prefs);
       }
       final value = rawEmail.toString().trim();
       if (value.isEmpty) {
-        return _fetchUserEmailFromProfileApi(token);
+        return await _fetchUserEmailFromProfileApi(token) ??
+            _lastLoginEmail(prefs);
+      }
+      if (_looksLikeEmail(value)) {
+        await prefs.setString("user_email", value);
       }
       return value;
     } catch (_) {
-      return _fetchUserEmailFromProfileApi(token);
+      return await _fetchUserEmailFromProfileApi(token) ??
+          _lastLoginEmail(prefs);
     }
+  }
+
+  String? _lastLoginEmail(SharedPreferences prefs) {
+    final lastIdentifier =
+        (prefs.getString(_lastLoginIdentifierKey) ?? "").trim().toLowerCase();
+    return _looksLikeEmail(lastIdentifier) ? lastIdentifier : null;
+  }
+
+  String? _extractEmail(Map<String, dynamic> data) {
+    final dynamic rawEmail =
+        data["user_email"] ??
+        data["email"] ??
+        (data["data"] is Map && (data["data"] as Map)["user"] is Map
+            ? ((data["data"] as Map)["user"] as Map)["email"]
+            : null);
+    final email = (rawEmail ?? "").toString().trim().toLowerCase();
+    return _looksLikeEmail(email) ? email : null;
+  }
+
+  bool _looksLikeEmail(String value) {
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim());
   }
 
   Future<bool> isPrivilegedAdmin() async {

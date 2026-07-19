@@ -14,17 +14,26 @@ class WishlistScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    final pageBg = palette.background;
+    final cardBorder = palette.border;
+    final darkText = palette.textPrimary;
+    final mutedText = palette.textMuted;
+    final actionColor = palette.accent;
+    final priceGreen = palette.success;
     return Scaffold(
-      backgroundColor: palette.background,
+      backgroundColor: pageBg,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: palette.textPrimary),
+        backgroundColor: palette.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0.5,
+        shadowColor: palette.border,
+        iconTheme: IconThemeData(color: darkText),
         title: Text(
           'Wishlist',
           style: TextStyle(
-            color: palette.textPrimary,
-            fontWeight: FontWeight.w700,
+            color: darkText,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ),
@@ -44,14 +53,14 @@ class WishlistScreen extends StatelessWidget {
                     Icon(
                       Icons.favorite_border_rounded,
                       size: 44,
-                      color: palette.accent,
+                      color: actionColor,
                     ),
                     const SizedBox(height: 12),
                     Text(
                       'No products in your wishlist yet.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: palette.textMuted,
+                        color: mutedText,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -65,34 +74,31 @@ class WishlistScreen extends StatelessWidget {
           return Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [palette.heroStart, palette.heroEnd],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: palette.border),
+                    color: palette.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: cardBorder),
                   ),
                   child: Row(
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        width: 34,
+                        height: 34,
                         decoration: BoxDecoration(
-                          color: palette.surface.withOpacity(0.82),
-                          borderRadius: BorderRadius.circular(14),
+                          color: palette.accent.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
                           Icons.favorite_rounded,
-                          color: palette.accent,
+                          color: actionColor,
+                          size: 19,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,18 +106,17 @@ class WishlistScreen extends StatelessWidget {
                             Text(
                               '${wishlist.items.length} saved product${wishlist.items.length == 1 ? '' : 's'}',
                               style: TextStyle(
-                                color: palette.textPrimary,
+                                color: darkText,
                                 fontWeight: FontWeight.w800,
-                                fontSize: 15,
+                                fontSize: 14,
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 3),
                             Text(
-                              'Tap any item to open details or remove it anytime.',
-                              style: TextStyle(
-                                color: palette.textMuted,
-                                fontSize: 11,
-                              ),
+                              'Saved picks are ready to move into cart.',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: mutedText, fontSize: 11),
                             ),
                           ],
                         ),
@@ -122,157 +127,229 @@ class WishlistScreen extends StatelessWidget {
               ),
               Expanded(
                 child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
                   itemBuilder: (context, index) {
                     final product = wishlist.items[index];
                     final isInCart = cart.items.any(
                       (item) => item.id == product.id && item.variationId == null,
                     );
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ProductDetailScreen(product: product),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: palette.surface,
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: palette.border),
-                        ),
-                        child: Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: SizedBox(
-                                width: 72,
-                                height: 72,
-                                child: AppCachedImage(
-                                  url: product.image,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: palette.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: cardBorder),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(
+                              palette.isLight ? 0.04 : 0.18,
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          InkWell(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(8),
+                            ),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ProductDetailScreen(product: product),
+                                ),
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+                              child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    product.name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: palette.textPrimary,
-                                      fontWeight: FontWeight.w700,
+                                  Container(
+                                    width: 94,
+                                    height: 104,
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: palette.surfaceStrong,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: AppCachedImage(
+                                        url: product.image,
+                                        fit: BoxFit.contain,
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    '\u20B9${product.price}',
-                                    style: TextStyle(
-                                      color: palette.accent,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    product.isInStock ? 'In Stock' : 'Out of Stock',
-                                    style: TextStyle(
-                                      color: product.isInStock
-                                          ? palette.accent
-                                          : palette.textMuted,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  SizedBox(
-                                    height: 36,
-                                    child: ElevatedButton.icon(
-                                      onPressed: product.isInStock
-                                          ? () {
-                                              cart.addToCart(
-                                                CartItem(
-                                                  id: product.id,
-                                                  name: product.name,
-                                                  image: product.image,
-                                                  price: product.priceValue ?? 0,
-                                                  variationId: null,
-                                                ),
-                                              );
-                                              ScaffoldMessenger.of(context)
-                                                ..hideCurrentSnackBar()
-                                                ..showSnackBar(
-                                                  SnackBar(
-                                                    content: Text(
-                                                      isInCart
-                                                          ? '${product.name} quantity updated in bag'
-                                                          : '${product.name} added to bag',
-                                                    ),
-                                                  ),
-                                                );
-                                            }
-                                          : null,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: isInCart
-                                            ? palette.surfaceStrong
-                                            : palette.accent,
-                                        disabledBackgroundColor:
-                                            palette.surfaceStrong,
-                                        foregroundColor: isInCart
-                                            ? palette.textPrimary
-                                            : palette.onAccent,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 0,
+                                  const SizedBox(width: 11),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          product.name,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: darkText,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13.5,
+                                            height: 1.25,
+                                          ),
                                         ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          product.isInStock
+                                              ? 'In stock  |  Ready for cart'
+                                              : 'Out of Stock',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: product.isInStock
+                                                ? priceGreen
+                                                : mutedText,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                         ),
-                                      ),
-                                      icon: Icon(
-                                        isInCart
-                                            ? Icons.shopping_bag_rounded
-                                            : Icons.add_shopping_cart_rounded,
-                                        size: 16,
-                                      ),
-                                      label: Text(
-                                        product.isInStock
-                                            ? (isInCart
-                                                  ? 'Add Again'
-                                                  : 'Add to Bag')
-                                            : 'Out of Stock',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 12,
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          '\u20B9${product.price}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: darkText,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 17,
+                                          ),
                                         ),
-                                      ),
+                                      ],
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            IconButton(
-                              onPressed: () {
-                                wishlist.toggle(
-                                  product,
-                                  source: 'wishlist_screen',
-                                );
-                              },
-                              icon: Icon(
-                                Icons.favorite_rounded,
-                                color: palette.accent,
+                          ),
+                          Divider(height: 1, color: cardBorder),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextButton.icon(
+                                  onPressed: () {
+                                    wishlist.toggle(
+                                      product,
+                                      source: 'wishlist_screen',
+                                    );
+                                  },
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: mutedText,
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 9),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    'Remove',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
+                              Expanded(
+                                child: TextButton.icon(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ProductDetailScreen(product: product),
+                                      ),
+                                    );
+                                  },
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: mutedText,
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 9),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.visibility_outlined,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    'View',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: TextButton.icon(
+                                  onPressed: product.isInStock
+                                      ? () {
+                                          cart.addToCart(
+                                            CartItem(
+                                              id: product.id,
+                                              name: product.name,
+                                              image: product.image,
+                                              price: product.priceValue ?? 0,
+                                              variationId: null,
+                                            ),
+                                          );
+                                          ScaffoldMessenger.of(context)
+                                            ..hideCurrentSnackBar()
+                                            ..showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  isInCart
+                                                      ? '${product.name} quantity updated in cart'
+                                                      : '${product.name} added to cart',
+                                                ),
+                                              ),
+                                            );
+                                        }
+                                      : null,
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: actionColor,
+                                    disabledForegroundColor: mutedText,
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 9),
+                                  ),
+                                  icon: Icon(
+                                    isInCart
+                                        ? Icons.shopping_bag_rounded
+                                        : Icons.add_shopping_cart_rounded,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    product.isInStock
+                                        ? (isInCart ? 'Add Again' : 'Add to Cart')
+                                        : 'Out of Stock',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     );
                   },

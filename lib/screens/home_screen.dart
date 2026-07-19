@@ -38,6 +38,7 @@ import 'motorcycle_service_station_screen.dart';
 import 'sale_products_screen.dart';
 import 'tracking_webview_screen.dart';
 import 'top_category_detail_screen.dart';
+import 'shop_by_category_screen.dart';
 
 // ✅ STEP 2: Imported SignupScreen
 import 'signup_screen.dart';
@@ -307,19 +308,18 @@ class _HomeScreenState extends State<HomeScreen>
   static const int _homeBannerCacheWidth = 1280;
   static const int _homeProductImageCacheWidth = 720;
   static const int _homeCategoryImageCacheWidth = 240;
-  static const double _saleCardHeight = 112;
+  static const double _saleCardHeight = 100;
+  static const bool _showQuickAccessRail = false;
   final CarouselSliderController _bannerController = CarouselSliderController();
-  late final Future<_HomeCategorySectionData> _categorySectionFuture;
-  late final Future<List<Product>> _newArrivalsFuture;
-  late final Future<List<Product>> _bestSellersFuture;
-  late Future<Map<String, dynamic>> _bikeGarageFuture;
+  Future<_HomeCategorySectionData>? _categorySectionFuture;
+  Future<List<Product>>? _newArrivalsFuture;
+  Future<List<Product>>? _bestSellersFuture;
+  Future<Map<String, dynamic>>? _bikeGarageFuture;
   late Future<String?> _authTokenFuture;
   late final AnimationController _titleAnimController;
   late final AnimationController _cartPulseController;
   late final AnimationController _searchCtaController;
   late final AnimationController _shopByBikeIntroController;
-  Timer? _dailySaleCountdownTimer;
-  DateTime _dailySaleClock = DateTime.now();
   String currentSearch = "";
   String offerText = "";
   bool isOfferLoading = true;
@@ -437,6 +437,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _internetStatusKnown = false;
   bool _isCheckingInternet = false;
   int _internetFailureCount = 0;
+  bool _serverRetryActive = false;
   bool _homePopupDialogShown = false;
   bool _themeChooserShown = false;
   bool _dailySaleEnabled = true;
@@ -447,6 +448,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _selectMotorcycleIntroActive = false;
   String _selectedTopCategoryKey = "shop_by_bike";
   double _homeChromeCollapseProgress = 0;
+  final ValueNotifier<double> _homeChromeCollapseProgressNotifier =
+      ValueNotifier<double>(0);
   List<Product> _recentlyViewedProducts = const <Product>[];
   final GlobalKey _quickAccessRailKey = GlobalKey();
   final GlobalKey _cartIconKey = GlobalKey();
@@ -488,34 +491,70 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1050),
     );
-    _dailySaleCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() {
-        _dailySaleClock = DateTime.now();
-      });
-    });
     _scrollController.addListener(_handleHomeScroll);
     widget.recentlyViewedRefresh?.addListener(_handleRecentlyViewedRefresh);
     _searchFocusNode.addListener(_handleSearchFocusChanged);
     AnalyticsService.instance.logScreen("home");
-    _categorySectionFuture = _loadHomeCategorySection();
-    _newArrivalsFuture = _loadNewArrivals();
-    _bestSellersFuture = _loadBestSellers();
-    _bikeGarageFuture = _loadBikeGarageData();
     _authTokenFuture = AuthService().getToken();
-    _loadSaleAvailability();
-    _loadRecentlyViewedProducts();
-    loadOffer();
-    _loadBannerImages();
-    _loadBannerVideos();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkForHomePopup();
-      _warmBannerImages();
+      _scheduleHomeLazyLoads();
     });
 
     isInitialLoading = true;
-    fetchProductsFromServer();
-    _refreshInternetStatus();
+    Future<void>.delayed(const Duration(milliseconds: 80), () {
+      if (!mounted) return;
+      _loadInitialProductsWithVersionCheck();
+    });
+    Future<void>.delayed(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      _refreshInternetStatus();
+    });
+  }
+
+  Future<void> _loadInitialProductsWithVersionCheck() async {
+    await api.fetchAppVersion(forceRefresh: true);
+    if (!mounted) return;
+    await fetchProductsFromServer();
+  }
+
+  void _scheduleHomeLazyLoads() {
+    Future<void>.delayed(const Duration(milliseconds: 280), () {
+      if (!mounted || _categorySectionFuture != null) return;
+      setState(() {
+        _categorySectionFuture = _loadHomeCategorySection();
+      });
+    });
+
+    Future<void>.delayed(const Duration(milliseconds: 420), () {
+      if (!mounted) return;
+      _loadSaleAvailability();
+      _loadRecentlyViewedProducts();
+    });
+
+    Future<void>.delayed(const Duration(milliseconds: 620), () {
+      if (!mounted || _bikeGarageFuture != null) return;
+      setState(() {
+        _bikeGarageFuture = _loadBikeGarageData();
+      });
+    });
+
+    Future<void>.delayed(const Duration(milliseconds: 760), () {
+      if (!mounted) return;
+      _scheduleProductRailLoads();
+    });
+
+    Future<void>.delayed(const Duration(milliseconds: 940), () {
+      if (!mounted) return;
+      loadOffer();
+      _loadBannerImages();
+      _loadBannerVideos();
+    });
+
+    Future<void>.delayed(const Duration(milliseconds: 1250), () {
+      if (!mounted) return;
+      _checkForHomePopup();
+      _warmBannerImages();
+    });
   }
 
   Future<void> _loadRecentlyViewedProducts() async {
@@ -551,9 +590,8 @@ class _HomeScreenState extends State<HomeScreen>
     final nextProgress = (_scrollController.offset / 28).clamp(0.0, 1.0);
     if ((nextProgress - _homeChromeCollapseProgress).abs() < 0.02) return;
     if (!mounted) return;
-    setState(() {
-      _homeChromeCollapseProgress = nextProgress;
-    });
+    _homeChromeCollapseProgress = nextProgress;
+    _homeChromeCollapseProgressNotifier.value = nextProgress;
   }
 
   @override
@@ -585,6 +623,18 @@ class _HomeScreenState extends State<HomeScreen>
     return _parseHomeProductsSafely(data).take(10).toList();
   }
 
+  void _scheduleProductRailLoads() {
+    Future<void>.delayed(const Duration(milliseconds: 650), () {
+      if (!mounted || _newArrivalsFuture != null || _bestSellersFuture != null) {
+        return;
+      }
+      setState(() {
+        _newArrivalsFuture = _loadNewArrivals();
+        _bestSellersFuture = _loadBestSellers();
+      });
+    });
+  }
+
   List<Product> _parseHomeProductsSafely(List<dynamic> items) {
     final products = <Product>[];
     for (final item in items.whereType<Map>()) {
@@ -603,6 +653,11 @@ class _HomeScreenState extends State<HomeScreen>
         title: "Shop By Bike",
         key: "shop_by_bike",
         icon: Icons.motorcycle_rounded,
+      ),
+      _HomeTopNavItem(
+        title: "Shop By Category",
+        key: "shop_by_category",
+        icon: Icons.grid_view_rounded,
       ),
       _HomeTopNavItem(
         title: "Bike Accessories",
@@ -639,7 +694,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _warmBannerImages() async {
     if (!mounted) return;
-    for (final item in _bannerItems.where((item) => !item.isVideo).take(3)) {
+    for (final item in _bannerItems.where((item) => !item.isVideo).take(1)) {
       final source = item.sourceUrl.trim();
       if (!source.toLowerCase().startsWith("http")) continue;
       unawaited(
@@ -654,7 +709,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _warmProductImages(List<Product> items) async {
     if (!mounted) return;
-    for (final product in items.take(8)) {
+    for (final product in items.take(4)) {
       final imageUrl = product.image.trim();
       if (!imageUrl.toLowerCase().startsWith("http")) continue;
       unawaited(
@@ -665,13 +720,6 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
     }
-  }
-
-  void _scheduleInternetRetry() {
-    _internetRetryTimer?.cancel();
-    _internetRetryTimer = Timer(const Duration(seconds: 30), () {
-      _refreshInternetStatus();
-    });
   }
 
   void _scheduleInternetRecheck({Duration delay = const Duration(seconds: 5)}) {
@@ -699,14 +747,22 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
 
     if (online) {
+      final shouldReloadAfterRetry =
+          _serverRetryActive ||
+          (!_hasInternet && products.isEmpty) ||
+          (currentSearch.trim().isEmpty && isInitialLoading && products.isEmpty);
       _internetFailureCount = 0;
-      if (!_internetStatusKnown || !_hasInternet) {
+      if (!_internetStatusKnown || !_hasInternet || _serverRetryActive) {
         setState(() {
           _internetStatusKnown = true;
           _hasInternet = true;
+          _serverRetryActive = false;
         });
       }
       _internetRetryTimer?.cancel();
+      if (shouldReloadAfterRetry && currentSearch.trim().isEmpty) {
+        unawaited(fetchProductsFromServer(forceRefresh: true));
+      }
       return;
     }
 
@@ -716,15 +772,16 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    if (!_internetStatusKnown || _hasInternet) {
+    if (!_internetStatusKnown || _hasInternet || !_serverRetryActive) {
       setState(() {
         _internetStatusKnown = true;
         _hasInternet = false;
+        _serverRetryActive = true;
       });
     }
 
     if (!_hasInternet) {
-      _scheduleInternetRetry();
+      _scheduleInternetRecheck();
     }
   }
 
@@ -736,12 +793,14 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadSaleAvailability() async {
     try {
-      final dailyPayload = await dataManager.getSaleCollection("daily_sale");
-      final bigDaysPayload = await dataManager.getSaleCollection("big_days_sale");
+      final payloads = await Future.wait<Map<String, dynamic>>([
+        dataManager.getSaleCollection("daily_sale", preferCache: true),
+        dataManager.getSaleCollection("big_days_sale", preferCache: true),
+      ]);
       if (!mounted) return;
       setState(() {
-        _dailySaleEnabled = dailyPayload["enabled"] != false;
-        _bigDaysSaleEnabled = bigDaysPayload["enabled"] != false;
+        _dailySaleEnabled = payloads[0]["enabled"] != false;
+        _bigDaysSaleEnabled = payloads[1]["enabled"] != false;
       });
     } catch (_) {
       if (!mounted) return;
@@ -1158,7 +1217,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     _shopByBikeIntroRunning = true;
     await Future<void>.delayed(const Duration(milliseconds: 700));
-    if (!mounted || !_scrollController.hasClients) {
+    if (!mounted) {
       _shopByBikeIntroRunning = false;
       return;
     }
@@ -1170,26 +1229,13 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _shopByBikeIntroController.repeat(reverse: true);
 
-    await Future<void>.delayed(const Duration(milliseconds: 1800));
-    if (!mounted) return;
-
-    await _scrollToSelectMotorcycleSection(
-      duration: const Duration(milliseconds: 1250),
-      alignment: 0.10,
-    );
+    await Future<void>.delayed(const Duration(milliseconds: 2100));
     if (!mounted) return;
 
     setState(() {
       _shopByBikeIntroTopActive = false;
-      _selectMotorcycleIntroActive = true;
-    });
-    await Future<void>.delayed(const Duration(milliseconds: 2200));
-    if (!mounted) return;
-
-    setState(() {
       _selectMotorcycleIntroActive = false;
     });
-    await _scrollToTop(duration: const Duration(milliseconds: 1150));
     _shopByBikeIntroController.stop();
     _shopByBikeIntroController.value = 0;
     await prefs.setBool(_shopByBikeIntroSeenKey, true);
@@ -1211,6 +1257,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> fetchProductsFromServer({
     bool loadMore = false,
     String? searchQuery,
+    bool forceRefresh = false,
   }) async {
     if (isLoading) return;
 
@@ -1230,7 +1277,19 @@ class _HomeScreenState extends State<HomeScreen>
           : await dataManager.getHomeProducts(
               page: 1,
               search: null,
+              forceRefresh: forceRefresh,
             );
+
+      if (trimmedSearch.isEmpty && data.isEmpty && products.isEmpty) {
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+            isInitialLoading = true;
+          });
+          _scheduleInternetRecheck();
+        }
+        return;
+      }
 
       final parsedProducts =
           data.map<Product>((e) => Product.fromJson(e)).toList();
@@ -1243,6 +1302,7 @@ class _HomeScreenState extends State<HomeScreen>
 
           isLoading = false;
           isInitialLoading = false;
+          _serverRetryActive = false;
         });
         unawaited(_warmProductImages(newProducts));
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1254,8 +1314,11 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) {
         setState(() {
           isLoading = false;
-          isInitialLoading = false;
+          isInitialLoading = currentSearch.trim().isEmpty && products.isEmpty;
         });
+        if (currentSearch.trim().isEmpty) {
+          _scheduleInternetRecheck();
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           unawaited(_runInitialThemeAndShopByBikeIntro());
         });
@@ -1788,17 +1851,22 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadBannerVideos() async {
     final prefs = await SharedPreferences.getInstance();
-    final currentVersion = (await api.fetchAppVersion())?.trim() ?? "";
-    final cachedVersion = (prefs.getString(_videoCacheVersionKey) ?? "").trim();
     final cachedRaw = prefs.getString(_videoCacheKey) ?? "";
-
-    if (cachedRaw.isNotEmpty && currentVersion.isNotEmpty && cachedVersion == currentVersion) {
+    if (cachedRaw.isNotEmpty && mounted) {
       final cachedItems = _parseVideoLinks(cachedRaw);
-      if (cachedItems.isNotEmpty && mounted) {
+      if (cachedItems.isNotEmpty) {
         setState(() {
           _replaceVideoBanners(cachedItems);
         });
       }
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
+    }
+
+    final currentVersion = (await api.fetchAppVersion())?.trim() ?? "";
+    final cachedVersion = (prefs.getString(_videoCacheVersionKey) ?? "").trim();
+
+    if (cachedRaw.isNotEmpty && currentVersion.isNotEmpty && cachedVersion == currentVersion) {
       return;
     }
 
@@ -1877,6 +1945,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildBikeGarageSection() {
+    if (_bikeGarageFuture == null) return const SizedBox.shrink();
     return FutureBuilder<Map<String, dynamic>>(
       future: _bikeGarageFuture,
       builder: (context, snapshot) {
@@ -2200,7 +2269,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _handleTopCategoryTap(_HomeTopNavItem item) {
-    if (item.key == "shop_by_bike") {
+    if (item.key == "shop_by_category") {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ShopByCategoryScreen()),
+      );
+    } else if (item.key == "shop_by_bike") {
       if (_selectedTopCategoryKey != item.key) {
         setState(() {
           _selectedTopCategoryKey = item.key;
@@ -2215,6 +2288,19 @@ class _HomeScreenState extends State<HomeScreen>
       }
       _scrollToTopBrandsSection();
     } else if (_opensTopCategoryDetailPage(item.key)) {
+      final remoteSource = TopCategoryDetailScreen.remoteSourceFor(item.key);
+      if (remoteSource != null) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ShopByCategoryScreen(
+              title: item.title,
+              sourceUrl: remoteSource.sourceUrl,
+              cacheKeyPrefix: remoteSource.cacheKeyPrefix,
+            ),
+          ),
+        );
+        return;
+      }
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => TopCategoryDetailScreen(
@@ -2322,7 +2408,7 @@ class _HomeScreenState extends State<HomeScreen>
     final palette = context.appPalette;
     if (items.isEmpty) return const SizedBox.shrink();
     final collapse = Curves.easeOutCubic.transform(_homeChromeCollapseProgress);
-    final expandedHeight = 50.0;
+    final expandedHeight = 52.0;
     final compactHeight = 50.0;
     final navHeight = lerpDouble(expandedHeight, compactHeight, collapse)!;
     final itemWidth = lerpDouble(92, 106, collapse)!;
@@ -2341,16 +2427,6 @@ class _HomeScreenState extends State<HomeScreen>
       palette.textPrimary,
       collapse,
     )!;
-    final compactSurfaceColor = Color.lerp(
-      palette.surface.withOpacity(palette.isLight ? 0.92 : 0.74),
-      palette.surfaceStrong.withOpacity(palette.isLight ? 0.82 : 0.64),
-      collapse,
-    )!;
-    final compactBorderColor = Color.lerp(
-      palette.border.withOpacity(0.70),
-      palette.border.withOpacity(0.52),
-      collapse,
-    )!;
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
       child: Container(
@@ -2361,27 +2437,14 @@ class _HomeScreenState extends State<HomeScreen>
           0,
           0,
         ),
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           borderRadius: BorderRadius.zero,
-          color: compactSurfaceColor,
-          border: Border(
-            top: BorderSide(color: compactBorderColor),
-            bottom: BorderSide(color: compactBorderColor),
-          ),
+          color: Colors.transparent,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.zero,
           child: Stack(
             children: [
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  height: 1,
-                  color: palette.border.withOpacity(0.36),
-                ),
-              ),
               ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.zero,
@@ -2391,11 +2454,15 @@ class _HomeScreenState extends State<HomeScreen>
                 itemBuilder: (context, index) {
                   final item = items[index];
                   final isSelected = item.key == _selectedTopCategoryKey;
+                  final isPrimaryItem = item.key == "shop_by_bike";
                   final isIntroTarget =
                       _shopByBikeIntroTopActive && item.key == "shop_by_bike";
                   final title = item.title;
+                  final tileWidth =
+                      isPrimaryItem ? lerpDouble(108, 114, collapse)! : itemWidth;
+                  final tileContentHeight = itemContentHeight;
                   return SizedBox(
-                    width: itemWidth,
+                    width: tileWidth,
                     child: AnimatedBuilder(
                       animation: _shopByBikeIntroController,
                       builder: (context, child) {
@@ -2407,24 +2474,31 @@ class _HomeScreenState extends State<HomeScreen>
                             duration: const Duration(milliseconds: 160),
                             curve: Curves.easeOutCubic,
                             margin: EdgeInsets.symmetric(
-                              vertical: 1,
+                              horizontal: isPrimaryItem ? 8 : 0,
+                              vertical: 3,
                             ),
-                             decoration: BoxDecoration(
+                              decoration: BoxDecoration(
                                color: isIntroTarget
-                                   ? Color.lerp(
-                                       palette.highlight.withOpacity(0.20),
-                                       palette.highlight.withOpacity(0.34),
-                                       pulse,
+                                    ? Color.lerp(
+                                        palette.highlight.withOpacity(0.20),
+                                        palette.highlight.withOpacity(0.34),
+                                        pulse,
+                                      )
+                                    : isPrimaryItem
+                                        ? palette.accent.withOpacity(
+                                            palette.isLight ? 0.16 : 0.20,
+                                          )
+                                    : Colors.transparent,
+                               borderRadius: BorderRadius.circular(16),
+                               border: isIntroTarget || isPrimaryItem
+                                   ? Border.all(
+                                       color: isIntroTarget
+                                           ? palette.highlight.withOpacity(0.58)
+                                           : palette.accent.withOpacity(0.46),
+                                       width: isPrimaryItem ? 1.4 : 1.2,
                                      )
-                                   : Colors.transparent,
-                              borderRadius: BorderRadius.circular(18),
-                              border: isIntroTarget
-                                  ? Border.all(
-                                      color: palette.highlight.withOpacity(0.58),
-                                      width: 1.2,
-                                    )
-                                  : null,
-                              boxShadow: const [],
+                                   : null,
+                               boxShadow: const [],
                             ),
                             child: child,
                           ),
@@ -2435,13 +2509,13 @@ class _HomeScreenState extends State<HomeScreen>
                         borderRadius: BorderRadius.circular(18),
                         child: InkWell(
                           onTap: () => _handleTopCategoryTap(item),
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(16),
                           child: Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: lerpDouble(4, 6, collapse)!,
                             ),
                           child: SizedBox(
-                            height: itemContentHeight,
+                            height: tileContentHeight,
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -2452,9 +2526,9 @@ class _HomeScreenState extends State<HomeScreen>
                                       opacity: iconOpacity,
                                       child: Center(
                                         child: Container(
-                                          width: 32,
-                                          height: 22,
-                                          decoration: BoxDecoration(
+                                          width: isPrimaryItem ? 34 : 32,
+                                          height: isPrimaryItem ? 23 : 22,
+                                           decoration: BoxDecoration(
                                             color: isSelected
                                                 ? palette.accent.withOpacity(
                                                     palette.isLight ? 0.16 : 0.18,
@@ -2467,7 +2541,7 @@ class _HomeScreenState extends State<HomeScreen>
                                             color: isSelected
                                                 ? palette.accent
                                                 : palette.textPrimary,
-                                            size: 17,
+                                            size: isPrimaryItem ? 18 : 17,
                                           ),
                                         ),
                                       ),
@@ -2482,15 +2556,16 @@ class _HomeScreenState extends State<HomeScreen>
                                     textAlign: TextAlign.center,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: isSelected
+                                     style: TextStyle(
+                                       color: isSelected
                                           ? compactSelectedTextColor
                                           : compactTextColor,
-                                      fontSize: textFontSize,
+                                       fontSize:
+                                           isPrimaryItem ? textFontSize + 0.4 : textFontSize,
                                       height: 1.05,
-                                      fontWeight: isSelected
-                                          ? FontWeight.w900
-                                          : FontWeight.w700,
+                                       fontWeight: isPrimaryItem || isSelected
+                                           ? FontWeight.w900
+                                           : FontWeight.w700,
                                     ),
                                   ),
                                 ),
@@ -2505,8 +2580,8 @@ class _HomeScreenState extends State<HomeScreen>
                                       : 0,
                                   height: 3,
                                   decoration: BoxDecoration(
-                                    color: isSelected
-                                        ? palette.accent
+                                     color: isSelected
+                                         ? palette.accent
                                         : Colors.transparent,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
@@ -2521,6 +2596,64 @@ class _HomeScreenState extends State<HomeScreen>
                 );
               },
             ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 18,
+                    height: navHeight,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          palette.background,
+                          palette.background.withOpacity(0.0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 18,
+                    height: navHeight,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.centerRight,
+                        end: Alignment.centerLeft,
+                        colors: [
+                          palette.background,
+                          palette.background.withOpacity(0.0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 28,
+                right: 28,
+                bottom: 0,
+                child: IgnorePointer(
+                  child: Container(
+                    height: 1,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.transparent,
+                          palette.accent.withOpacity(0.45),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -2810,7 +2943,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildProductRailSection({
-    required Future<List<Product>> future,
+    required Future<List<Product>>? future,
     required String title,
     required String pillText,
     required IconData icon,
@@ -2819,6 +2952,15 @@ class _HomeScreenState extends State<HomeScreen>
   }) {
     final palette = context.appPalette;
     final accentColor = accentColorBuilder(palette);
+    if (future == null) {
+      return _buildProductRailLoadingSection(
+        title: title,
+        pillText: pillText,
+        icon: icon,
+        accentColor: accentColor,
+        palette: palette,
+      );
+    }
     return FutureBuilder<List<Product>>(
       future: future,
       builder: (context, snapshot) {
@@ -2919,6 +3061,78 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildProductRailLoadingSection({
+    required String title,
+    required String pillText,
+    required IconData icon,
+    required Color accentColor,
+    required AppThemePalette palette,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+          child: Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: accentColor.withOpacity(0.28)),
+                ),
+                child: Icon(icon, color: accentColor, size: 17),
+              ),
+              const SizedBox(width: 9),
+              Text(
+                title,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: palette.surface,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: palette.border),
+                ),
+                child: Text(
+                  pillText,
+                  style: TextStyle(
+                    color: palette.accent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 178,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: 5,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (_, __) => const SkeletonBox(
+              width: 124,
+              height: 168,
+              radius: 14,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
   Widget _buildHomeProductRailCard(
     Product product,
     AppThemePalette palette,
@@ -2941,14 +3155,14 @@ class _HomeScreenState extends State<HomeScreen>
           borderRadius: BorderRadius.circular(14),
           child: Ink(
             decoration: BoxDecoration(
-              color: palette.surface,
+              color: Colors.white,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: palette.border),
+              border: Border.all(color: const Color(0xFFE7E7E7)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.10),
-                  blurRadius: 9,
-                  offset: const Offset(0, 5),
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
@@ -3004,7 +3218,7 @@ class _HomeScreenState extends State<HomeScreen>
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: palette.textPrimary,
+                      color: const Color(0xFF151515),
                       fontSize: 11.5,
                       height: 1.15,
                       fontWeight: FontWeight.w800,
@@ -3022,7 +3236,7 @@ class _HomeScreenState extends State<HomeScreen>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: palette.accent,
+                            color: const Color(0xFFD32F2F),
                             fontSize: 12,
                             fontWeight: FontWeight.w900,
                           ),
@@ -3030,7 +3244,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       Icon(
                         Icons.arrow_forward_rounded,
-                        color: palette.textMuted,
+                        color: const Color(0xFF777777),
                         size: 14,
                       ),
                     ],
@@ -3256,9 +3470,9 @@ class _HomeScreenState extends State<HomeScreen>
     _shopByBikeIntroController.dispose();
     _scrollController.removeListener(_handleHomeScroll);
     _scrollController.dispose();
+    _homeChromeCollapseProgressNotifier.dispose();
     _searchFocusNode.removeListener(_handleSearchFocusChanged);
     _searchFocusNode.dispose();
-    _dailySaleCountdownTimer?.cancel();
     searchController.dispose();
     _debounce?.cancel();
     _internetRetryTimer?.cancel();
@@ -3469,6 +3683,8 @@ class _HomeScreenState extends State<HomeScreen>
           _warmBannerImages();
         });
       }
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
     }
 
     try {
@@ -3537,38 +3753,81 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildHomeBody() {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (event) {
+        if (!_showQuickAccessRail || !_quickAccessExpanded) return;
+        final context = _quickAccessRailKey.currentContext;
+        if (context == null) {
+          setState(() => _quickAccessExpanded = false);
+          return;
+        }
+        final box = context.findRenderObject() as RenderBox?;
+        if (box == null) {
+          setState(() => _quickAccessExpanded = false);
+          return;
+        }
+        final topLeft = box.localToGlobal(Offset.zero);
+        final rect = topLeft & box.size;
+        if (!rect.contains(event.position)) {
+          setState(() => _quickAccessExpanded = false);
+        }
+      },
+      child: Stack(
+        children: [
+          buildMainContent(),
+          if (_showQuickAccessRail) _buildQuickAccessRail(),
+          if (_internetStatusKnown && !_hasInternet)
+            Positioned(
+              top: 10,
+              left: 12,
+              right: 12,
+              child: _buildNoInternetBanner(),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
-    final collapse = Curves.easeOutCubic.transform(_homeChromeCollapseProgress);
     final topInset = MediaQuery.of(context).padding.top;
     const logoRowHeight = 64.0;
     const commerceStripHeight = 32.0;
     const commerceToCategoryGap = 6.0;
-    final headerTopPadding = lerpDouble(8, 4, collapse)!;
-    final headerGap = lerpDouble(7, 0, collapse)!;
-    final topCategoryNavHeight =
-        50.0 + lerpDouble(0, 2, collapse)!;
     const overflowGuard = 6.0;
     final searchSuggestions = _searchSuggestions();
     final showSearchSuggestions =
         searchSuggestions.isNotEmpty &&
         (_searchFocusNode.hasFocus || searchController.text.trim().isNotEmpty);
     final searchSuggestionHeight = showSearchSuggestions ? 43.0 : 0.0;
-    final appBarHeight =
-        headerTopPadding +
-        (logoRowHeight * (1 - collapse)) +
-        headerGap +
-        lerpDouble(48, 46, collapse)! +
-        searchSuggestionHeight +
-        headerGap +
-        (commerceStripHeight * (1 - collapse)) +
-        (commerceToCategoryGap * (1 - collapse)) +
-        topCategoryNavHeight +
-        overflowGuard;
-    final searchHeight = lerpDouble(48, 46, collapse)!;
+    final homeBody = _buildHomeBody();
 
-    return Scaffold(
+    return ValueListenableBuilder<double>(
+      valueListenable: _homeChromeCollapseProgressNotifier,
+      child: homeBody,
+      builder: (context, collapseProgress, body) {
+        _homeChromeCollapseProgress = collapseProgress;
+        final collapse = Curves.easeOutCubic.transform(collapseProgress);
+        final headerTopPadding = lerpDouble(8, 4, collapse)!;
+        final headerGap = lerpDouble(7, 0, collapse)!;
+        final topCategoryNavHeight = 50.0 + lerpDouble(0, 2, collapse)!;
+        final appBarHeight =
+            headerTopPadding +
+            (logoRowHeight * (1 - collapse)) +
+            headerGap +
+            lerpDouble(48, 46, collapse)! +
+            searchSuggestionHeight +
+            headerGap +
+            (commerceStripHeight * (1 - collapse)) +
+            (commerceToCategoryGap * (1 - collapse)) +
+            topCategoryNavHeight +
+            overflowGuard;
+        final searchHeight = lerpDouble(48, 46, collapse)!;
+
+        return Scaffold(
       backgroundColor: palette.background,
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(appBarHeight),
@@ -4015,40 +4274,7 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
       ),
-      body: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (event) {
-          if (!_quickAccessExpanded) return;
-          final context = _quickAccessRailKey.currentContext;
-          if (context == null) {
-            setState(() => _quickAccessExpanded = false);
-            return;
-          }
-          final box = context.findRenderObject() as RenderBox?;
-          if (box == null) {
-            setState(() => _quickAccessExpanded = false);
-            return;
-          }
-          final topLeft = box.localToGlobal(Offset.zero);
-          final rect = topLeft & box.size;
-          if (!rect.contains(event.position)) {
-            setState(() => _quickAccessExpanded = false);
-          }
-        },
-        child: Stack(
-          children: [
-            buildMainContent(),
-            _buildQuickAccessRail(),
-            if (_internetStatusKnown && !_hasInternet)
-              Positioned(
-                top: 10,
-                left: 12,
-                right: 12,
-                child: _buildNoInternetBanner(),
-              ),
-          ],
-        ),
-      ),
+      body: body!,
       // ✅ WHATSAPP BUTTON (Correct Position)
       floatingActionButton: AnimatedSwitcher(
         duration: const Duration(milliseconds: 180),
@@ -4072,8 +4298,8 @@ class _HomeScreenState extends State<HomeScreen>
             : FloatingActionButton(
                 key: const ValueKey("whatsapp_fab"),
                 onPressed: openWhatsApp,
-                backgroundColor: palette.accent,
-                foregroundColor: palette.onAccent,
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
                 shape: const CircleBorder(),
                 child: SizedBox(
                   width: 26,
@@ -4084,14 +4310,14 @@ class _HomeScreenState extends State<HomeScreen>
                       Icon(
                         Icons.chat_bubble_rounded,
                         size: 24,
-                        color: palette.onAccent,
+                        color: Colors.white,
                       ),
                       Positioned(
                         top: 7,
                         child: Icon(
                           Icons.call_rounded,
                           size: 12,
-                          color: palette.accent,
+                          color: Colors.black,
                         ),
                       ),
                     ],
@@ -4099,6 +4325,8 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
       ),
+    );
+      },
     );
   }
 
@@ -4644,11 +4872,13 @@ class _HomeScreenState extends State<HomeScreen>
         children: [
           Row(
             children: [
-              Icon(Icons.wifi_off_rounded, color: palette.highlight, size: 20),
+              Icon(Icons.cloud_sync_rounded, color: palette.highlight, size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  "No Internet Connection",
+                  _serverRetryActive
+                      ? "Server is busy"
+                      : "Connection issue",
                   style: TextStyle(
                     color: palette.textPrimary,
                     fontSize: 14,
@@ -4657,6 +4887,17 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _serverRetryActive
+                ? "Retrying in 5 seconds. Please wait."
+                : "Data will load as soon as the connection is restored.",
+            style: TextStyle(
+              color: palette.textMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 8),
           LinearProgressIndicator(
@@ -4672,8 +4913,10 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildSaleButtons() {
     final palette = context.appPalette;
     final saleCards = <Widget>[
-      _buildDailySaleCountdownCard(
+      _DailySaleCountdownCard(
         isEnabled: _dailySaleEnabled,
+        height: _saleCardHeight,
+        colors: _themeSaleCardColors(palette, 0),
         onTap: () {
           Navigator.push(
             context,
@@ -4737,197 +4980,35 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     ];
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 6, 0, 10),
-      child: CarouselSlider.builder(
-        itemCount: saleCards.length,
-        itemBuilder: (context, index, realIndex) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 5),
+    Widget saleRow(int startIndex) {
+      return Row(
+        children: [
+          Expanded(
             child: SizedBox(
               height: _saleCardHeight,
-              width: double.infinity,
-              child: saleCards[index],
+              child: saleCards[startIndex],
             ),
-          );
-        },
-        options: CarouselOptions(
-          height: _saleCardHeight + 12,
-          viewportFraction: 0.50,
-          autoPlay: true,
-          autoPlayInterval: const Duration(seconds: 3),
-          autoPlayAnimationDuration: const Duration(milliseconds: 650),
-          autoPlayCurve: Curves.easeOutCubic,
-          enlargeCenterPage: false,
-          enableInfiniteScroll: true,
-          pauseAutoPlayOnTouch: true,
-          padEnds: false,
-          scrollPhysics: const BouncingScrollPhysics(),
-        ),
-      ),
-    );
-  }
-
-  DateTime _dailySaleStart(DateTime now) =>
-      DateTime(now.year, now.month, now.day, 10);
-
-  DateTime _dailySaleEnd(DateTime now) =>
-      DateTime(now.year, now.month, now.day, 19);
-
-  bool get _isDailySaleLive {
-    final now = _dailySaleClock;
-    return !now.isBefore(_dailySaleStart(now)) &&
-        now.isBefore(_dailySaleEnd(now));
-  }
-
-  Duration _dailySaleCountdownDuration() {
-    final now = _dailySaleClock;
-    final todayStart = _dailySaleStart(now);
-    final todayEnd = _dailySaleEnd(now);
-    if (now.isBefore(todayStart)) {
-      return todayStart.difference(now);
-    }
-    if (now.isBefore(todayEnd)) {
-      return todayEnd.difference(now);
-    }
-    return todayStart.add(const Duration(days: 1)).difference(now);
-  }
-
-  String _formatDailySaleCountdown(Duration duration) {
-    final safeDuration = duration.isNegative ? Duration.zero : duration;
-    final hours = safeDuration.inHours;
-    final minutes = safeDuration.inMinutes.remainder(60);
-    final seconds = safeDuration.inSeconds.remainder(60);
-    String twoDigits(int value) => value.toString().padLeft(2, "0");
-    return "${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}";
-  }
-
-  Widget _buildDailySaleCountdownCard({
-    required bool isEnabled,
-    required VoidCallback onTap,
-  }) {
-    final palette = context.appPalette;
-    final colors = _themeSaleCardColors(palette, 0);
-    final activeColors = colors.length >= 2
-        ? colors
-        : [palette.accentStrong, palette.highlight];
-    final disabledColors = [palette.surfaceSoft, palette.surfaceStrong];
-    final isLive = isEnabled && _isDailySaleLive;
-    final cardColors = isEnabled ? activeColors : disabledColors;
-    final baseTextColor =
-        cardColors.first.computeLuminance() > 0.45 ? Colors.black : Colors.white;
-    final textColor = isEnabled ? baseTextColor : palette.textMuted;
-    final mutedColor = isEnabled
-        ? baseTextColor.withOpacity(baseTextColor == Colors.black ? 0.72 : 0.84)
-        : palette.textMuted;
-    final countdownText = _formatDailySaleCountdown(
-      _dailySaleCountdownDuration(),
-    );
-    final countdownLabel = isLive ? "Ends in" : "Starts in";
-
-    return SizedBox(
-      height: _saleCardHeight,
-      child: InkWell(
-        onTap: isLive ? onTap : null,
-        borderRadius: BorderRadius.circular(20),
-        child: Ink(
-        padding: const EdgeInsets.fromLTRB(11, 9, 11, 9),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: cardColors,
           ),
-          border: Border.all(
-            color: isEnabled
-                ? Colors.white.withOpacity(0.26)
-                : palette.border.withOpacity(0.70),
-            width: 1.1,
+          const SizedBox(width: 10),
+          Expanded(
+            child: SizedBox(
+              height: _saleCardHeight,
+              child: saleCards[startIndex + 1],
+            ),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: cardColors.first.withOpacity(isEnabled ? 0.28 : 0.08),
-              blurRadius: 14,
-              offset: const Offset(0, 7),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.bolt_rounded, color: textColor, size: 15),
-                const SizedBox(width: 3),
-                Flexible(
-                  child: Text(
-                    "Daily Sale",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 12.8,
-                      height: 1,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              isEnabled ? "50% OFF" : "CLOSED",
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 18,
-                height: 1,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              isEnabled ? countdownLabel : "Currently disabled",
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: mutedColor,
-                fontSize: 9.5,
-                height: 1,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(
-                  baseTextColor == Colors.black ? 0.10 : 0.22,
-                ),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white.withOpacity(0.22)),
-              ),
-              child: Text(
-                isEnabled ? countdownText : "--:--:--",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 14,
-                  height: 1,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+        ],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          saleRow(0),
+          const SizedBox(height: 10),
+          saleRow(2),
+        ],
       ),
     );
   }
@@ -5752,10 +5833,10 @@ class _HomeScreenState extends State<HomeScreen>
     return SizedBox(
       height: _saleCardHeight,
       child: InkWell(
-        onTap: onTap,
+        onTap: isEnabled ? onTap : null,
         borderRadius: BorderRadius.circular(20),
         child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
           gradient: LinearGradient(
@@ -5787,8 +5868,8 @@ class _HomeScreenState extends State<HomeScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 32,
-                    height: 32,
+                    width: 28,
+                    height: 28,
                     decoration: BoxDecoration(
                       color: badgeColor,
                       borderRadius: BorderRadius.circular(13),
@@ -5799,10 +5880,10 @@ class _HomeScreenState extends State<HomeScreen>
                     child: Icon(
                       isEnabled ? icon : Icons.lock_rounded,
                       color: badgeIconColor,
-                      size: 19,
+                      size: 17,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 5),
                   Text(
                     title,
                     textAlign: TextAlign.center,
@@ -5810,12 +5891,12 @@ class _HomeScreenState extends State<HomeScreen>
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: titleColor,
-                      fontSize: titleSize,
+                      fontSize: titleSize - 0.4,
                       height: 1.05,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 2),
                   Text(
                     subtitle,
                     textAlign: TextAlign.center,
@@ -5823,7 +5904,7 @@ class _HomeScreenState extends State<HomeScreen>
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: subtitleColor,
-                      fontSize: 10,
+                      fontSize: 9.5,
                       height: 1.05,
                       fontWeight: FontWeight.w700,
                     ),
@@ -5857,6 +5938,208 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ),
+      ),
+    );
+  }
+}
+
+class _DailySaleCountdownCard extends StatefulWidget {
+  const _DailySaleCountdownCard({
+    required this.isEnabled,
+    required this.height,
+    required this.colors,
+    required this.onTap,
+  });
+
+  final bool isEnabled;
+  final double height;
+  final List<Color> colors;
+  final VoidCallback onTap;
+
+  @override
+  State<_DailySaleCountdownCard> createState() => _DailySaleCountdownCardState();
+}
+
+class _DailySaleCountdownCardState extends State<_DailySaleCountdownCard> {
+  late Timer _timer;
+  DateTime _clock = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        _clock = DateTime.now();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  DateTime _dailySaleStart(DateTime now) =>
+      DateTime(now.year, now.month, now.day, 10);
+
+  DateTime _dailySaleEnd(DateTime now) =>
+      DateTime(now.year, now.month, now.day, 19);
+
+  bool get _isLive {
+    return !_clock.isBefore(_dailySaleStart(_clock)) &&
+        _clock.isBefore(_dailySaleEnd(_clock));
+  }
+
+  Duration _countdownDuration() {
+    final todayStart = _dailySaleStart(_clock);
+    final todayEnd = _dailySaleEnd(_clock);
+    if (_clock.isBefore(todayStart)) {
+      return todayStart.difference(_clock);
+    }
+    if (_clock.isBefore(todayEnd)) {
+      return todayEnd.difference(_clock);
+    }
+    return todayStart.add(const Duration(days: 1)).difference(_clock);
+  }
+
+  String _formatCountdown(Duration duration) {
+    final safeDuration = duration.isNegative ? Duration.zero : duration;
+    final hours = safeDuration.inHours;
+    final minutes = safeDuration.inMinutes.remainder(60);
+    final seconds = safeDuration.inSeconds.remainder(60);
+    String twoDigits(int value) => value.toString().padLeft(2, "0");
+    return "${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    final activeColors = widget.colors.length >= 2
+        ? widget.colors
+        : [palette.accentStrong, palette.highlight];
+    final disabledColors = [palette.surfaceSoft, palette.surfaceStrong];
+    final isAdminEnabled = widget.isEnabled;
+    final isLive = isAdminEnabled && _isLive;
+    final cardColors = isLive ? activeColors : disabledColors;
+    final baseTextColor =
+        cardColors.first.computeLuminance() > 0.45 ? Colors.black : Colors.white;
+    final textColor = isLive ? baseTextColor : palette.textMuted;
+    final mutedColor = isLive
+        ? baseTextColor.withOpacity(baseTextColor == Colors.black ? 0.72 : 0.84)
+        : palette.textMuted;
+    final countdownLabel = isLive ? "Ends in" : "Starts in";
+    final countdownText = _formatCountdown(_countdownDuration());
+
+    return SizedBox(
+      height: widget.height,
+      child: InkWell(
+        onTap: isLive ? widget.onTap : null,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: cardColors,
+            ),
+            border: Border.all(
+              color: isLive
+                  ? Colors.white.withOpacity(0.26)
+                  : palette.border.withOpacity(0.70),
+              width: 1.1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: cardColors.first.withOpacity(isLive ? 0.28 : 0.08),
+                blurRadius: 14,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bolt_rounded, color: textColor, size: 14),
+                      const SizedBox(width: 3),
+                      Text(
+                        "Daily Sale",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 12.2,
+                          height: 1,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    isLive ? "50% OFF" : "CLOSED",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 16,
+                      height: 1,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    isAdminEnabled ? countdownLabel : "Currently disabled",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: mutedColor,
+                      fontSize: 9,
+                      height: 1,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(
+                        baseTextColor == Colors.black ? 0.10 : 0.22,
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Colors.white.withOpacity(0.22)),
+                    ),
+                    child: Text(
+                      isAdminEnabled ? countdownText : "--:--:--",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 13,
+                        height: 1,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

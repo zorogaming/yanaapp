@@ -32,6 +32,7 @@ class DataManager {
   Future<List<dynamic>> getHomeProducts({
     int page = 1,
     String? search,
+    bool forceRefresh = false,
   }) async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -50,7 +51,7 @@ class DataManager {
     // 🔥 First check cache
     String? cachedData = prefs.getString(homeProductsKey);
     // ✅ If cache exists → RETURN IMMEDIATELY (NO WAIT)
-    if (cachedData != null) {
+    if (!forceRefresh && cachedData != null) {
       return jsonDecode(cachedData);
     }
 
@@ -395,6 +396,7 @@ class DataManager {
     String collectionKey, {
     int page = 1,
     int perPage = 50,
+    bool preferCache = false,
   }) async {
     final normalizedKey = collectionKey.trim().toLowerCase();
     if (normalizedKey.isEmpty) {
@@ -405,6 +407,12 @@ class DataManager {
     final cacheKey = _saleCollectionCacheKey(normalizedKey);
     final versionKey = _saleCollectionVersionKey(normalizedKey);
     final cachedData = prefs.getString(cacheKey);
+    if (preferCache && cachedData != null && cachedData.isNotEmpty) {
+      final cachedPayload = _decodeSaleCollectionCache(cachedData);
+      if (cachedPayload != null) {
+        return cachedPayload;
+      }
+    }
 
     try {
       final freshData = await api.fetchSaleCollection(
@@ -426,18 +434,24 @@ class DataManager {
     } catch (e) {
       print("Sale collection fetch error: $e");
       if (cachedData != null && cachedData.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(cachedData);
-          if (decoded is Map<String, dynamic>) {
-            return decoded;
-          }
-          if (decoded is Map) {
-            return Map<String, dynamic>.from(decoded);
-          }
-        } catch (_) {}
+        final cachedPayload = _decodeSaleCollectionCache(cachedData);
+        if (cachedPayload != null) return cachedPayload;
       }
       return const <String, dynamic>{"items": <dynamic>[]};
     }
+  }
+
+  Map<String, dynamic>? _decodeSaleCollectionCache(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+    return null;
   }
 
   String _saleCollectionCacheKey(String collectionKey) =>

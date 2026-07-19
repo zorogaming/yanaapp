@@ -101,6 +101,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
   Timer? _watchingTimer;
   Timer? _cartIdleStartTimer;
   Timer? _cartIdleStopTimer;
+  static const int _maxWatchingCount = 11;
 
   @override
   void initState() {
@@ -2549,12 +2550,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
   }
 
   void _initializeWatchingCount() {
-    _watchingCount = _stableProductNumber(min: 5, max: 50, salt: "watching");
+    _watchingCount = _stableProductNumber(
+      min: 5,
+      max: _maxWatchingCount,
+      salt: "watching",
+    );
     _watchingTimer?.cancel();
     _watchingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (!mounted || _watchingCount >= 50) return;
+      if (!mounted || _watchingCount >= _maxWatchingCount) return;
       setState(() {
-        _watchingCount = math.min(50, _watchingCount + 1);
+        _watchingCount = math.min(_maxWatchingCount, _watchingCount + 1);
       });
     });
   }

@@ -17,6 +17,7 @@ import 'admin_dashboard_screen.dart';
 import 'admin_home_popup_screen.dart';
 import 'admin_update_notification_screen.dart';
 import 'admin_user_credits_screen.dart';
+import 'admin_whatsapp_community_popup_screen.dart';
 import 'bike_garage_screen.dart';
 import 'bug_report_screen.dart';
 import 'change_password_screen.dart';
@@ -420,6 +421,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             'Home Popup',
             const AdminHomePopupScreen(),
             subtitle: 'Home screen dismissible popup trigger karo',
+          ),
+          _buildMenuTile(
+            Icons.chat_outlined,
+            'WhatsApp Popup',
+            const AdminWhatsAppCommunityPopupScreen(),
+            subtitle: 'Community popup enable/disable aur link change karo',
           ),
           _buildMenuTile(
             Icons.system_update_alt_outlined,

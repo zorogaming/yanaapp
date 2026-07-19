@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../models/product_model.dart';
 import '../services/data_manager.dart';
-import '../services/woo_service.dart';
-import '../widgets/skeletons.dart';
 import 'products_screen.dart';
 
 class SaleProductsScreen extends StatefulWidget {
@@ -21,7 +19,6 @@ class SaleProductsScreen extends StatefulWidget {
 }
 
 class _SaleProductsScreenState extends State<SaleProductsScreen> {
-  final WooService _api = WooService();
   final DataManager _dataManager = DataManager();
 
   List<Product> _products = [];
@@ -124,9 +121,12 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
         child: RefreshIndicator(
           onRefresh: _loadProducts,
           child: _isLoading
-              ? const ProductsGridSkeleton(
-                  padding: EdgeInsets.all(12),
-                  childAspectRatio: 0.56,
+              ? ListView.separated(
+                  padding: EdgeInsets.zero,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: 6,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, __) => const ProductListSkeleton(),
                 )
               : _products.isEmpty
                   ? ListView(
@@ -171,17 +171,11 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
                         ),
                       ],
                     )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(12),
+                  : ListView.separated(
+                      padding: EdgeInsets.zero,
                       physics: const AlwaysScrollableScrollPhysics(),
                       itemCount: _products.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 0.56,
-                      ),
+                      separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (context, index) {
                         return ProductCard(
                           product: _products[index],

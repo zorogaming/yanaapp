@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/cart_provider.dart';
 import '../services/auth_service.dart';
 import '../services/analytics_service.dart';
 import '../services/notification_inbox_service.dart';
 import '../services/woo_service.dart';
+import '../services/whatsapp_community_popup_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/whatsapp_community_popup.dart';
 import 'cart_screen.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
@@ -25,10 +30,15 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int currentIndex = 0;
   bool _startupReady = false;
+  bool _communityPopupShown = false;
+  Timer? _communityPopupTimer;
   final AuthService _authService = AuthService();
   final ValueNotifier<int> _homeRecentlyViewedRefresh = ValueNotifier<int>(0);
   late final List<Widget> screens;
   AppThemePalette get _palette => context.appPalette;
+  Uri _whatsappCommunityUri = Uri.parse(
+    WhatsAppCommunityPopupService.defaultInviteUrl,
+  );
   static const List<String> _tabNames = [
     "home",
     "bag",
@@ -60,6 +70,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   void dispose() {
+    _communityPopupTimer?.cancel();
     _homeRecentlyViewedRefresh.dispose();
     super.dispose();
   }
@@ -77,6 +88,48 @@ class _MainNavigationState extends State<MainNavigation> {
     setState(() {
       _startupReady = true;
     });
+    _scheduleCommunityPopup();
+  }
+
+  void _scheduleCommunityPopup() {
+    if (_communityPopupShown || _communityPopupTimer != null) return;
+    _communityPopupTimer = Timer(const Duration(seconds: 16), () async {
+      final shouldShow = await _loadCommunityPopupConfig();
+      if (shouldShow) {
+        await _showCommunityPopup();
+      }
+    });
+  }
+
+  Future<bool> _loadCommunityPopupConfig() async {
+    try {
+      final config = await WhatsAppCommunityPopupService.instance.getConfig();
+      _whatsappCommunityUri = Uri.parse(config.inviteUrl);
+      return config.enabled;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _showCommunityPopup() async {
+    if (!mounted || _communityPopupShown) return;
+    _communityPopupShown = true;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.62),
+      builder: (dialogContext) {
+        return WhatsappCommunityPopup(
+          onJoinNow: () async {
+            Navigator.of(dialogContext).pop();
+            await launchUrl(
+              _whatsappCommunityUri,
+              mode: LaunchMode.externalApplication,
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -98,66 +151,73 @@ class _MainNavigationState extends State<MainNavigation> {
         index: currentIndex,
         children: screens,
       ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-        child: Consumer<CartProvider>(
-          builder: (context, cart, child) {
-            return ValueListenableBuilder<int>(
-              valueListenable: NotificationInboxService.instance.unreadCountNotifier,
-              builder: (context, unreadCount, _) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(28),
-                    color: palette.accent,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.24),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      _buildNavItem(
-                        index: 0,
-                        label: "Home",
-                        icon: Icons.home_rounded,
-                      ),
-                      _buildNavItem(
-                        index: 1,
-                        label: "Bag",
-                        icon: Icons.shopping_cart_rounded,
-                        badgeCount: cart.itemCount,
-                      ),
-                      _buildNavItem(
-                        index: 2,
-                        label: "Menu",
-                        icon: Icons.grid_view_rounded,
-                      ),
-                      _buildNavItem(
-                        index: 3,
-                        label: "Alerts",
-                        icon: Icons.notifications_rounded,
-                        badgeCount: currentIndex == 3 ? 0 : unreadCount,
-                      ),
-                      _buildNavItem(
-                        index: 4,
-                        label: "Orders",
-                        icon: Icons.receipt_long_rounded,
-                      ),
-                      _buildNavItem(
-                        index: 5,
-                        label: "Profile",
-                        icon: Icons.person_rounded,
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
+      bottomNavigationBar: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: palette.accent,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.24),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          minimum: EdgeInsets.zero,
+          child: Consumer<CartProvider>(
+            builder: (context, cart, child) {
+              return ValueListenableBuilder<int>(
+                valueListenable:
+                    NotificationInboxService.instance.unreadCountNotifier,
+                builder: (context, unreadCount, _) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        _buildNavItem(
+                          index: 0,
+                          label: "Home",
+                          icon: Icons.home_rounded,
+                        ),
+                        _buildNavItem(
+                          index: 1,
+                          label: "Bag",
+                          icon: Icons.shopping_cart_rounded,
+                          badgeCount: cart.itemCount,
+                        ),
+                        _buildNavItem(
+                          index: 2,
+                          label: "Menu",
+                          icon: Icons.grid_view_rounded,
+                        ),
+                        _buildNavItem(
+                          index: 3,
+                          label: "Alerts",
+                          icon: Icons.notifications_rounded,
+                          badgeCount: currentIndex == 3 ? 0 : unreadCount,
+                        ),
+                        _buildNavItem(
+                          index: 4,
+                          label: "Orders",
+                          icon: Icons.receipt_long_rounded,
+                        ),
+                        _buildNavItem(
+                          index: 5,
+                          label: "Profile",
+                          icon: Icons.person_rounded,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -201,7 +261,7 @@ class _MainNavigationState extends State<MainNavigation> {
           duration: const Duration(milliseconds: 220),
           padding: const EdgeInsets.symmetric(vertical: 2),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(6),
             color: Colors.transparent,
           ),
           child: Column(
@@ -216,7 +276,7 @@ class _MainNavigationState extends State<MainNavigation> {
                     height: 30,
                     decoration: BoxDecoration(
                       color: isSelected ? Colors.black : Colors.transparent,
-                      borderRadius: BorderRadius.circular(15),
+                      borderRadius: BorderRadius.circular(6),
                       boxShadow: isSelected
                           ? [
                               BoxShadow(
@@ -235,7 +295,7 @@ class _MainNavigationState extends State<MainNavigation> {
                   ),
                   if (badgeCount > 0)
                     Positioned(
-                      right: -6,
+                      right: -8,
                       top: -5,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -250,11 +310,11 @@ class _MainNavigationState extends State<MainNavigation> {
                         child: Text(
                           badgeCount > 99 ? "99+" : badgeCount.toString(),
                           textAlign: TextAlign.center,
-                           style: TextStyle(
-                             color: palette.accent,
-                             fontSize: 8,
-                             fontWeight: FontWeight.w700,
-                           ),
+                          style: TextStyle(
+                            color: palette.accent,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),
