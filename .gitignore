@@ -39,6 +39,7 @@ migrate_working_dir/
 /ios/build/
 /ios/Runner/GoogleService-Info.plist
 /third_party/*/example/
+/signing_input/
 
 # Symbolication related
 app.*.symbols
