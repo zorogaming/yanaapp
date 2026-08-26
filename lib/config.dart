@@ -10,6 +10,8 @@ class Config {
   static const String forgotPasswordApiUrl =
       "https://yanaworldwide.store/wp-json/wp/v1/app-forgot-password";
   static const String forgotPasswordToken = "YANAWORLDWIDE_RESET_2026";
+  static const String accountDeletionApiUrl =
+      "https://yanaworldwide.store/wp-json/wp/v1/app-delete-account";
 
   // PayU CheckoutPro SDK config
   static const String payuMerchantKey = "BxIXGh";

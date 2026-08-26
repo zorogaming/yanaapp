@@ -208,6 +208,54 @@ class AuthService {
     }
   }
 
+  Future<String?> deleteAccount() async {
+    final token = await getToken();
+    if (token == null || token.isEmpty) {
+      return "Please login again before deleting your account.";
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(Config.accountDeletionApiUrl),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+          Config.appHeaderKey: Config.appHeaderValue,
+        },
+        body: jsonEncode({}),
+      );
+
+      Map<String, dynamic>? payload;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          payload = decoded;
+        }
+      } catch (_) {
+        payload = null;
+      }
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final ok = payload == null || payload["ok"] != false;
+        return ok ? null : "Account deletion failed. Please try again.";
+      }
+
+      final message = (payload?["message"] ?? "").toString().trim();
+      if (message.isNotEmpty) return message;
+
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        return "Please login again before deleting your account.";
+      }
+      if (response.statusCode == 404) {
+        return "Account deletion service is not available right now.";
+      }
+
+      return "Account deletion failed. Please try again.";
+    } catch (_) {
+      return "Unable to connect to the server. Please try again.";
+    }
+  }
+
   Future<String?> requestPasswordReset(String userLogin) async {
     final identifier = userLogin.trim();
     if (identifier.isEmpty) {

@@ -22,7 +22,8 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
   bool _loading = true;
   String _selectedBike = "";
   List<String> _bikeOptions = const <String>[];
-  List<Map<String, dynamic>> _suggestedCategories = const <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _suggestedCategories =
+      const <Map<String, dynamic>>[];
   List<Product> _suggestedProducts = const <Product>[];
 
   @override
@@ -46,7 +47,9 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
     List<Product> products = const <Product>[];
     if (selected.isNotEmpty) {
       categories = await _dataManager.getSuggestedCategoriesForBike(selected);
-      final rawProducts = await _dataManager.getSuggestedProductsForBike(selected);
+      final rawProducts = await _dataManager.getSuggestedProductsForBike(
+        selected,
+      );
       products = rawProducts
           .whereType<Map>()
           .map((item) => Product.fromJson(Map<String, dynamic>.from(item)))
@@ -85,7 +88,10 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
     return Scaffold(
       backgroundColor: palette.background,
       appBar: AppBar(
-        title: Text("Bike Garage", style: TextStyle(color: palette.textPrimary)),
+        title: Text(
+          "Bike Garage",
+          style: TextStyle(color: palette.textPrimary),
+        ),
         backgroundColor: palette.surface,
         iconTheme: IconThemeData(color: palette.textPrimary),
         actions: [
@@ -175,13 +181,13 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                  Text(
-                    "Available Bikes",
-                    style: TextStyle(
-                      color: palette.textPrimary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
+                Text(
+                  "Available Bikes",
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Wrap(
@@ -223,7 +229,8 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
                       runSpacing: 8,
                       children: _suggestedCategories.map((category) {
                         final categoryId =
-                            int.tryParse((category["id"] ?? "").toString()) ?? 0;
+                            int.tryParse((category["id"] ?? "").toString()) ??
+                            0;
                         final title = (category["name"] ?? "").toString();
                         return ActionChip(
                           backgroundColor: const Color(0xFF1C1F2E),
@@ -240,6 +247,8 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
                                       builder: (_) => ProductsScreen(
                                         categoryId: categoryId,
                                         title: title,
+                                        categorySlug: (category["slug"] ?? "")
+                                            .toString(),
                                       ),
                                     ),
                                   );
@@ -303,13 +312,30 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
                               if (product.hasDiscount)
                                 Text(
                                   "\u20B9${product.regularPrice}",
-                                  style: const TextStyle(color: Colors.white54, fontSize: 11, decoration: TextDecoration.lineThrough),
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 11,
+                                    decoration: TextDecoration.lineThrough,
+                                  ),
                                 ),
                               if (product.discountPercent > 0)
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                  decoration: BoxDecoration(color: const Color(0xFFFFB36B), borderRadius: BorderRadius.circular(999)),
-                                  child: Text("${product.discountPercent}% OFF", style: const TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.w800)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFB36B),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    "${product.discountPercent}% OFF",
+                                    style: const TextStyle(
+                                      color: Colors.black,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ),
                             ],
                           ),
@@ -322,7 +348,8 @@ class _BikeGarageScreenState extends State<BikeGarageScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => ProductDetailScreen(product: product),
+                                builder: (_) =>
+                                    ProductDetailScreen(product: product),
                               ),
                             );
                           },

@@ -72,7 +72,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
         surfaceTintColor: Colors.transparent,
         iconTheme: IconThemeData(color: palette.textPrimary),
         title: Text(
-          'Notifications',
+          'Alerts',
           style: TextStyle(color: palette.textPrimary),
         ),
         actions: [

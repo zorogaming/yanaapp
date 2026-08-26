@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:convert';
 import 'dart:math';
 
@@ -16,11 +17,20 @@ class AnalyticsService {
   static const String _anonymousIdKey = "anonymous_install_id";
   static const String _watchCountPrefix = "watch_count_";
   static const String _watchStartPrefix = "watch_start_";
+  static const String _watchNotifiedPrefix = "watch_notified_";
   static const int _watchWindowMs = 30 * 60 * 1000;
   static const String _fcmTokenKey = "fcm_token";
   static const String _appVersionKey = "app_version";
 
-  final FirebaseAnalytics _analytics = FirebaseAnalytics.instance;
+  FirebaseAnalytics? _analytics;
+
+  FirebaseAnalytics? get _firebaseAnalytics {
+    try {
+      return _analytics ??= FirebaseAnalytics.instance;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> initIdentity({String? userId}) async {
     final prefs = await SharedPreferences.getInstance();
@@ -33,18 +43,24 @@ class AnalyticsService {
       await prefs.setString(_anonymousIdKey, anonymousId);
     }
 
-    await _analytics.setUserProperty(name: "install_id", value: anonymousId);
-    await _analytics.setUserProperty(name: "is_logged_in", value: "$hasUser");
+    await _firebaseAnalytics?.setUserProperty(
+      name: "install_id",
+      value: anonymousId,
+    );
+    await _firebaseAnalytics?.setUserProperty(
+      name: "is_logged_in",
+      value: "$hasUser",
+    );
 
     if (hasUser) {
-      await _analytics.setUserId(id: normalizedUserId);
-      await _analytics.setUserProperty(
+      await _firebaseAnalytics?.setUserId(id: normalizedUserId);
+      await _firebaseAnalytics?.setUserProperty(
         name: "customer_type",
         value: "logged_in",
       );
     } else {
-      await _analytics.setUserId(id: anonymousId);
-      await _analytics.setUserProperty(
+      await _firebaseAnalytics?.setUserId(id: anonymousId);
+      await _firebaseAnalytics?.setUserProperty(
         name: "customer_type",
         value: "guest",
       );
@@ -64,12 +80,15 @@ class AnalyticsService {
     if (normalized.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_appVersionKey, normalized);
-    await _analytics.setUserProperty(name: "app_version", value: normalized);
+    await _firebaseAnalytics?.setUserProperty(
+      name: "app_version",
+      value: normalized,
+    );
   }
 
   Future<void> logScreen(String screenName) async {
     final normalizedScreen = _sanitize(screenName, fallback: "unknown_screen");
-    await _analytics.logScreenView(
+    await _firebaseAnalytics?.logScreenView(
       screenName: normalizedScreen,
     );
     await _sendAppEvent(
@@ -108,7 +127,7 @@ class AnalyticsService {
     required int resultsCount,
     String source = "app",
   }) async {
-    await _analytics.logSearch(
+    await _firebaseAnalytics?.logSearch(
       searchTerm: _sanitize(query, fallback: "empty"),
       parameters: {
         "results_count": resultsCount,
@@ -142,7 +161,7 @@ class AnalyticsService {
     String currency = "INR",
   }) async {
     final amount = double.tryParse(price) ?? 0.0;
-    await _analytics.logViewItem(
+    await _firebaseAnalytics?.logViewItem(
       currency: currency,
       value: amount,
       items: [
@@ -184,7 +203,7 @@ class AnalyticsService {
     required double price,
     String currency = "INR",
   }) async {
-    await _analytics.logAddToCart(
+    await _firebaseAnalytics?.logAddToCart(
       currency: currency,
       value: price * quantity,
       items: [
@@ -232,7 +251,7 @@ class AnalyticsService {
     String currency = "INR",
   }) async {
     final eventName = added ? "wishlist_add" : "wishlist_remove";
-    await _analytics.logEvent(
+    await _firebaseAnalytics?.logEvent(
       name: eventName,
       parameters: {
         "product_id": productId.toString(),
@@ -285,7 +304,7 @@ class AnalyticsService {
     required double value,
     String currency = "INR",
   }) async {
-    await _analytics.logBeginCheckout(
+    await _firebaseAnalytics?.logBeginCheckout(
       currency: currency,
       value: value,
       items: [
@@ -323,7 +342,7 @@ class AnalyticsService {
     required double amount,
     String currency = "INR",
   }) async {
-    await _analytics.logEvent(
+    await _firebaseAnalytics?.logEvent(
       name: "payment_status",
       parameters: {
         "order_id": orderId ?? 0,
@@ -350,7 +369,7 @@ class AnalyticsService {
     required double amount,
     String currency = "INR",
   }) async {
-    await _analytics.logPurchase(
+    await _firebaseAnalytics?.logPurchase(
       transactionId: orderId.toString(),
       value: amount,
       currency: currency,
@@ -376,14 +395,17 @@ class AnalyticsService {
   Future<void> registerPushToken({
     required String token,
     required String platform,
+    String apnsToken = "",
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_fcmTokenKey, token);
+    final normalizedApnsToken = apnsToken.trim();
     await _sendAppEvent(
       eventName: "push_token_update",
       payload: {
         "fcm_token": token,
         "platform": _sanitize(platform, fallback: "android"),
+        if (normalizedApnsToken.isNotEmpty) "apns_token": normalizedApnsToken,
       },
     );
   }
@@ -426,6 +448,7 @@ class AnalyticsService {
     final now = DateTime.now().millisecondsSinceEpoch;
     final startKey = "$_watchStartPrefix$productId";
     final countKey = "$_watchCountPrefix$productId";
+    final notifiedKey = "$_watchNotifiedPrefix$productId";
 
     final start = prefs.getInt(startKey) ?? now;
     var count = prefs.getInt(countKey) ?? 0;
@@ -434,12 +457,14 @@ class AnalyticsService {
     if (!withinWindow) {
       count = 0;
       await prefs.setInt(startKey, now);
+      await prefs.remove(notifiedKey);
     }
 
     count += 1;
     await prefs.setInt(countKey, count);
-    if (count >= 3) {
-      await _analytics.logEvent(
+    final alreadyNotified = prefs.getBool(notifiedKey) ?? false;
+    if (count >= 4 && !alreadyNotified) {
+      await _firebaseAnalytics?.logEvent(
         name: "repeat_product_interest",
         parameters: {
           "product_id": productId,
@@ -463,6 +488,7 @@ class AnalyticsService {
           "views_in_30m": count,
         },
       );
+      await prefs.setBool(notifiedKey, true);
     }
   }
 
@@ -488,12 +514,13 @@ class AnalyticsService {
         ...payload,
         if (appVersion.isNotEmpty) "app_version": appVersion,
       };
+      final platform = Platform.isIOS ? "ios" : "android";
       final body = <String, dynamic>{
         "event_name": _sanitize(eventName),
         "install_id": installId,
         "user_id": userId,
         "fcm_token": token,
-        "platform": "android",
+        "platform": platform,
         "app_version": appVersion,
         "product_id": enrichedPayload["product_id"],
         "order_id": enrichedPayload["order_id"],

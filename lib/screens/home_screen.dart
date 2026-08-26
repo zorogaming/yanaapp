@@ -9,6 +9,7 @@ import 'package:marquee/marquee.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../services/woo_service.dart';
 import '../services/admin_service.dart';
@@ -20,6 +21,8 @@ import 'cart_screen.dart';
 import '../models/cart_item.dart';
 import '../services/auth_service.dart';
 import '../services/analytics_service.dart';
+import '../services/notification_inbox_service.dart';
+import '../services/recently_viewed_service.dart';
 import 'login_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'ai_brain_screen.dart';
@@ -34,6 +37,8 @@ import 'bike_garage_screen.dart';
 import 'motorcycle_service_station_screen.dart';
 import 'sale_products_screen.dart';
 import 'tracking_webview_screen.dart';
+import 'shop_by_category_screen.dart';
+import 'top_category_detail_screen.dart';
 
 // ✅ STEP 2: Imported SignupScreen
 import 'signup_screen.dart';
@@ -49,15 +54,15 @@ const Color scaffoldBg = Color(0xFF0D0D0D);
 
 class HomeBannerMedia {
   const HomeBannerMedia.image(this.url)
-      : type = _HomeBannerMediaType.image,
-        youtubeId = null,
-        sourceUrl = url;
+    : type = _HomeBannerMediaType.image,
+      youtubeId = null,
+      sourceUrl = url;
 
   const HomeBannerMedia.video({
     required this.sourceUrl,
     required this.youtubeId,
-  })  : type = _HomeBannerMediaType.video,
-        url = '';
+  }) : type = _HomeBannerMediaType.video,
+       url = '';
 
   final _HomeBannerMediaType type;
   final String url;
@@ -97,7 +102,7 @@ class HomeBannerMediaCard extends StatefulWidget {
 
 class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
   WebViewController? _controller;
-  bool _videoStarted = false;
+  bool _playerVisible = false;
 
   @override
   void initState() {
@@ -111,7 +116,7 @@ class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
   void didUpdateWidget(covariant HomeBannerMediaCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item.youtubeId != widget.item.youtubeId) {
-      _videoStarted = false;
+      _playerVisible = false;
       if (widget.item.isVideo) {
         _controller = _buildYoutubeController(widget.item.youtubeId!);
       } else {
@@ -121,123 +126,80 @@ class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
   }
 
   WebViewController _buildYoutubeController(String youtubeId) {
-    final watchUrl = Uri.parse(
-      "https://m.youtube.com/watch?v=$youtubeId&autoplay=1&playsinline=1",
-    );
+    late final PlatformWebViewControllerCreationParams params;
+    final isWebKit = WebViewPlatform.instance is WebKitWebViewPlatform;
+    if (isWebKit) {
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
+    }
 
-    return WebViewController()
+    final safeId = youtubeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
+    final embedUrl = Uri.https('www.youtube-nocookie.com', '/embed/$safeId', {
+      'autoplay': '1',
+      'mute': '1',
+      'playsinline': '1',
+      'controls': '0',
+      'rel': '0',
+      'modestbranding': '1',
+      'iv_load_policy': '3',
+      'fs': '0',
+      'enablejsapi': '0',
+      'disablekb': '1',
+      'showinfo': '0',
+      'cc_load_policy': '0',
+      'loop': '1',
+      'playlist': safeId,
+      'origin': 'https://yanaworldwide.store',
+      'widget_referrer': 'https://yanaworldwide.store',
+    });
+
+    final controller = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..addJavaScriptChannel(
-        'YanaVideoState',
-        onMessageReceived: (message) {
-          final value = message.message.trim().toLowerCase();
-          if (value == 'play' && !_videoStarted) {
-            _videoStarted = true;
-            widget.onVideoStarted?.call();
-          } else if (value == 'ended') {
-            widget.onVideoEnded?.call();
-          }
-        },
-      )
+      ..setBackgroundColor(Colors.transparent)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) async {
-            await _attachVideoHooks();
-          },
+          onPageFinished: (_) => _showPlayerAfterLoad(),
+          onWebResourceError: (_) => _keepThumbnailVisible(),
         ),
-      )
-      ..loadRequest(watchUrl);
+      );
+
+    if (isWebKit) {
+      controller.setUserAgent(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+        'Mobile/15E148 Safari/604.1',
+      );
+    }
+
+    controller.loadRequest(
+      embedUrl,
+      headers: const {
+        'Referer': 'https://yanaworldwide.store/',
+        'Origin': 'https://yanaworldwide.store',
+      },
+    );
+
+    return controller;
   }
 
-  Future<void> _attachVideoHooks() async {
-    final controller = _controller;
-    if (controller == null) return;
-
-    const script = r'''
-(() => {
-  if (window.__yanaVideoHooksAttached) {
-    return;
-  }
-  window.__yanaVideoHooksAttached = true;
-
-  function sendState(value) {
-    if (window.YanaVideoState && typeof window.YanaVideoState.postMessage === 'function') {
-      window.YanaVideoState.postMessage(value);
-    }
+  void _showPlayerAfterLoad() {
+    Future<void>.delayed(const Duration(milliseconds: 1600), () {
+      if (!mounted || !widget.item.isVideo) return;
+      setState(() {
+        _playerVisible = true;
+      });
+    });
   }
 
-  function makeVideoBanner(video) {
-    if (!video) {
-      return false;
-    }
-    try {
-      document.documentElement.style.background = '#000';
-      document.body.style.background = '#000';
-      document.body.style.margin = '0';
-      document.body.style.padding = '0';
-      document.body.style.overflow = 'hidden';
-
-      const all = Array.from(document.body.querySelectorAll('*'));
-      for (const node of all) {
-        if (node !== video && !node.contains(video)) {
-          node.style.display = 'none';
-        }
-      }
-
-      let parent = video.parentElement;
-      while (parent) {
-        parent.style.display = 'block';
-        parent.style.position = 'fixed';
-        parent.style.inset = '0';
-        parent.style.width = '100vw';
-        parent.style.height = '100vh';
-        parent.style.margin = '0';
-        parent.style.padding = '0';
-        parent.style.background = '#000';
-        parent.style.zIndex = '2147483646';
-        parent = parent.parentElement;
-      }
-
-      video.style.position = 'fixed';
-      video.style.inset = '0';
-      video.style.width = '100vw';
-      video.style.height = '100vh';
-      video.style.objectFit = 'cover';
-      video.style.background = '#000';
-      video.style.zIndex = '2147483647';
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  function bindVideo() {
-    const video = document.querySelector('video');
-    if (!video) {
-      window.setTimeout(bindVideo, 700);
-      return;
-    }
-
-    makeVideoBanner(video);
-    sendState('play');
-
-    if (!video.__yanaEventsBound) {
-      video.__yanaEventsBound = true;
-      video.addEventListener('play', () => sendState('play'));
-      video.addEventListener('ended', () => sendState('ended'));
-    }
-  }
-
-  bindVideo();
-})();
-''';
-
-    try {
-      await controller.runJavaScript(script);
-    } catch (_) {
-      // Ignore JS injection failures; video can still play without auto-advance hooks.
-    }
+  void _keepThumbnailVisible() {
+    if (!mounted) return;
+    setState(() {
+      _playerVisible = false;
+    });
   }
 
   @override
@@ -255,7 +217,21 @@ class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
     if (_controller != null) {
       return Stack(
         children: [
-          Positioned.fill(child: WebViewWidget(controller: _controller!)),
+          Positioned.fill(
+            child: Image.network(
+              'https://img.youtube.com/vi/${widget.item.youtubeId}/hqdefault.jpg',
+              fit: BoxFit.cover,
+            ),
+          ),
+          Positioned.fill(
+            child: AnimatedOpacity(
+              opacity: _playerVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 220),
+              child: IgnorePointer(
+                child: WebViewWidget(controller: _controller!),
+              ),
+            ),
+          ),
         ],
       );
     }
@@ -285,6 +261,7 @@ class _HomeScreenState extends State<HomeScreen>
   static const int _homeBannerCacheWidth = 1280;
   static const int _homeProductImageCacheWidth = 720;
   static const int _homeCategoryImageCacheWidth = 240;
+  static String _lastForegroundPopupId = "";
   final CarouselSliderController _bannerController = CarouselSliderController();
   late final Future<_HomeCategorySectionData> _categorySectionFuture;
   late Future<Map<String, dynamic>> _bikeGarageFuture;
@@ -304,15 +281,9 @@ class _HomeScreenState extends State<HomeScreen>
   ];
 
   final List<HomeBannerMedia> _bannerItems = [
-    HomeBannerMedia.image(
-      _defaultBannerImageUrls[0],
-    ),
-    HomeBannerMedia.image(
-      _defaultBannerImageUrls[1],
-    ),
-    HomeBannerMedia.image(
-      _defaultBannerImageUrls[2],
-    ),
+    HomeBannerMedia.image(_defaultBannerImageUrls[0]),
+    HomeBannerMedia.image(_defaultBannerImageUrls[1]),
+    HomeBannerMedia.image(_defaultBannerImageUrls[2]),
   ];
 
   final WooService api = WooService();
@@ -322,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen>
   final TextEditingController searchController = TextEditingController();
 
   List<Product> products = [];
+  List<Product> _recentlyViewedProducts = const <Product>[];
   bool isLoading = false;
   bool isInitialLoading = true;
   bool _hasInternet = true;
@@ -329,10 +301,12 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isCheckingInternet = false;
   int _internetFailureCount = 0;
   bool _homePopupDialogShown = false;
+  bool _foregroundNotificationDialogShown = false;
   bool _themeChooserShown = false;
   bool _dailySaleEnabled = true;
   bool _bigDaysSaleEnabled = true;
   bool _quickAccessExpanded = false;
+  String _selectedTopCategoryKey = "shop_by_category";
   final GlobalKey _quickAccessRailKey = GlobalKey();
   final GlobalKey _cartIconKey = GlobalKey();
   final GlobalKey _searchBoxKey = GlobalKey();
@@ -377,19 +351,47 @@ class _HomeScreenState extends State<HomeScreen>
     _loadBannerVideos();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForHomePopup();
+      _listenForForegroundNotificationPopup();
       _warmBannerImages();
     });
+    NotificationInboxService.instance.latestPopupNotifier.addListener(
+      _listenForForegroundNotificationPopup,
+    );
 
     isInitialLoading = true;
     fetchProductsFromServer();
+    _loadRecentlyViewedProducts();
     _refreshInternetStatus();
+  }
+
+  @override
+  void dispose() {
+    NotificationInboxService.instance.latestPopupNotifier.removeListener(
+      _listenForForegroundNotificationPopup,
+    );
+    WidgetsBinding.instance.removeObserver(this);
+    _debounce?.cancel();
+    _internetRetryTimer?.cancel();
+    _scrollController.dispose();
+    searchController.dispose();
+    _titleAnimController.dispose();
+    _cartPulseController.dispose();
+    _searchCtaController.dispose();
+    super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _refreshInternetStatus();
+      _loadRecentlyViewedProducts();
     }
+  }
+
+  Future<void> _loadRecentlyViewedProducts() async {
+    final items = await RecentlyViewedService.instance.load();
+    if (!mounted) return;
+    setState(() => _recentlyViewedProducts = items);
   }
 
   Future<_HomeCategorySectionData> _loadHomeCategorySection() async {
@@ -402,7 +404,6 @@ class _HomeScreenState extends State<HomeScreen>
       topBrandCategories: results[1] as List<dynamic>,
     );
   }
-
 
   Future<void> _warmBannerImages() async {
     if (!mounted) return;
@@ -501,10 +502,162 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
+  void _listenForForegroundNotificationPopup() {
+    if (!mounted || _foregroundNotificationDialogShown) {
+      return;
+    }
+    final item = NotificationInboxService.instance.latestPopupNotifier.value;
+    if (item == null || item.id == _lastForegroundPopupId) {
+      return;
+    }
+    final source = item.source.trim().toLowerCase();
+    final isPopupEligible = source == "foreground" || source == "ai_brain";
+    if (!isPopupEligible) {
+      return;
+    }
+
+    _lastForegroundPopupId = item.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showForegroundNotificationPopup(item);
+    });
+  }
+
+  Future<void> _showForegroundNotificationPopup(
+    NotificationInboxItem item,
+  ) async {
+    if (!mounted || _foregroundNotificationDialogShown) {
+      return;
+    }
+
+    _foregroundNotificationDialogShown = true;
+    final title = item.title.trim().isEmpty ? "New update" : item.title.trim();
+    final body = item.body.trim();
+
+    try {
+      await showGeneralDialog<void>(
+        context: context,
+        barrierLabel: "foreground_notification_popup",
+        barrierDismissible: true,
+        barrierColor: Colors.black54,
+        pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+        transitionBuilder: (context, animation, _, __) {
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutBack,
+              ),
+              child: Center(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1F2937), Color(0xFF111827)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.white12),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x66000000),
+                        blurRadius: 26,
+                        offset: Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: accentGold.withOpacity(0.14),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(
+                                Icons.notifications_active_rounded,
+                                color: accentGold,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () {
+                                if (!mounted) return;
+                                Navigator.of(context).pop();
+                              },
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (body.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            body,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              if (!mounted) return;
+                              Navigator.of(context).pop();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: accentGold,
+                              foregroundColor: Colors.black,
+                            ),
+                            child: const Text("Okay"),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    } catch (_) {
+      // Fail-open: notification popup should never break the home screen.
+    } finally {
+      _foregroundNotificationDialogShown = false;
+    }
+  }
+
   Future<void> _loadSaleAvailability() async {
     try {
       final dailyPayload = await dataManager.getSaleCollection("daily_sale");
-      final bigDaysPayload = await dataManager.getSaleCollection("big_days_sale");
+      final bigDaysPayload = await dataManager.getSaleCollection(
+        "big_days_sale",
+      );
       if (!mounted) return;
       setState(() {
         _dailySaleEnabled = dailyPayload["enabled"] != false;
@@ -603,7 +756,10 @@ class _HomeScreenState extends State<HomeScreen>
           return FadeTransition(
             opacity: animation,
             child: ScaleTransition(
-              scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+              scale: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutBack,
+              ),
               child: Center(
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -661,7 +817,10 @@ class _HomeScreenState extends State<HomeScreen>
                                 if (!mounted) return;
                                 Navigator.of(context).pop();
                               },
-                              icon: const Icon(Icons.close, color: Colors.white70),
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.white70,
+                              ),
                             ),
                           ],
                         ),
@@ -754,8 +913,9 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted || _themeChooserShown) return;
     final prefs = await SharedPreferences.getInstance();
     final hasCompletedPrompt = prefs.getBool(_themePromptCompletedKey) ?? false;
-    final hasSavedTheme =
-        (prefs.getString('selected_app_theme') ?? '').trim().isNotEmpty;
+    final hasSavedTheme = (prefs.getString('selected_app_theme') ?? '')
+        .trim()
+        .isNotEmpty;
     if (hasCompletedPrompt || hasSavedTheme) return;
 
     _themeChooserShown = true;
@@ -775,7 +935,8 @@ class _HomeScreenState extends State<HomeScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (sheetContext) {
-        final sheetPalette = Theme.of(sheetContext).extension<AppThemePalette>() ??
+        final sheetPalette =
+            Theme.of(sheetContext).extension<AppThemePalette>() ??
             AppThemes.midnightPalette;
         return SafeArea(
           child: Padding(
@@ -795,10 +956,7 @@ class _HomeScreenState extends State<HomeScreen>
                 const SizedBox(height: 6),
                 Text(
                   "Pick the storefront style you want to start with.",
-                  style: TextStyle(
-                    color: sheetPalette.textMuted,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: sheetPalette.textMuted, fontSize: 13),
                 ),
                 const SizedBox(height: 16),
                 Flexible(
@@ -822,7 +980,10 @@ class _HomeScreenState extends State<HomeScreen>
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [optionPalette.heroStart, optionPalette.heroEnd],
+                              colors: [
+                                optionPalette.heroStart,
+                                optionPalette.heroEnd,
+                              ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -911,10 +1072,7 @@ class _HomeScreenState extends State<HomeScreen>
       width: 16,
       height: 16,
       margin: const EdgeInsets.only(right: 8),
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 
@@ -929,23 +1087,26 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final trimmedSearch = searchQuery?.trim() ?? "";
       final data = trimmedSearch.isNotEmpty
-          ? (await api.searchProductsSmart(
-              query: trimmedSearch,
-              perPage: 10,
-              page: 1,
-              orderBy: "date",
-              order: "desc",
-            ))
-              .items
-          : await dataManager.getHomeProducts(
-              page: 1,
-              search: null,
-            );
+          ? (await api
+                    .searchProductsSmart(
+                      query: trimmedSearch,
+                      perPage: 10,
+                      page: 1,
+                      orderBy: "date",
+                      order: "desc",
+                    )
+                    .timeout(const Duration(seconds: 12)))
+                .items
+          : await dataManager
+                .getHomeProducts(page: 1, search: null)
+                .timeout(const Duration(seconds: 12));
 
-      final parsedProducts =
-          data.map<Product>((e) => Product.fromJson(e)).toList();
-      final newProducts =
-          parsedProducts.where((product) => _isValidHomeProduct(product)).toList();
+      final parsedProducts = data
+          .map<Product>((e) => Product.fromJson(e))
+          .toList();
+      final newProducts = parsedProducts
+          .where((product) => _isValidHomeProduct(product))
+          .toList();
 
       if (mounted) {
         setState(() {
@@ -975,7 +1136,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool _isValidHomeProduct(Product product) {
     final image = product.image.trim();
-    final hasValidImage = image.isNotEmpty && image.toLowerCase().startsWith("http");
+    final hasValidImage =
+        image.isNotEmpty && image.toLowerCase().startsWith("http");
 
     final normalizedPrice = product.price.replaceAll(",", "").trim();
     final parsedPrice = double.tryParse(normalizedPrice);
@@ -1046,16 +1208,11 @@ class _HomeScreenState extends State<HomeScreen>
     final debounceMs = trimmed.isEmpty
         ? 100
         : trimmed.length < 3
-            ? 220
-            : 300;
-    _debounce = Timer(
-      Duration(milliseconds: debounceMs),
-      () {
-        fetchProductsFromServer(
-          searchQuery: trimmed.isEmpty ? null : trimmed,
-        );
-      },
-    );
+        ? 220
+        : 300;
+    _debounce = Timer(Duration(milliseconds: debounceMs), () {
+      fetchProductsFromServer(searchQuery: trimmed.isEmpty ? null : trimmed);
+    });
   }
 
   void _fillSearchFromBadge(String query) {
@@ -1126,10 +1283,7 @@ class _HomeScreenState extends State<HomeScreen>
                               palette.accent,
                               palette.highlight,
                             ]
-                          : [
-                              palette.accent,
-                              palette.accent,
-                            ],
+                          : [palette.accent, palette.accent],
                     ),
                     borderRadius: BorderRadius.circular(11),
                     boxShadow: hasQuery
@@ -1179,7 +1333,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (trimmed.isEmpty) return;
     final overlay = Overlay.of(context, rootOverlay: true);
     final startBox = startContext.findRenderObject() as RenderBox?;
-    final endBox = _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
+    final endBox =
+        _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
     if (overlay == null || startBox == null || endBox == null) {
       _fillSearchFromBadge(trimmed);
       return;
@@ -1209,8 +1364,9 @@ class _HomeScreenState extends State<HomeScreen>
         final dy =
             (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
             (math.sin(t * math.pi) * 24);
-        final opacity =
-            t < 0.9 ? 1.0 : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
+        final opacity = t < 0.9
+            ? 1.0
+            : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
         final glowOpacity = (1 - t).clamp(0.0, 1.0) * 0.22;
 
         return Positioned(
@@ -1288,7 +1444,9 @@ class _HomeScreenState extends State<HomeScreen>
     final cachedVersion = (prefs.getString(_videoCacheVersionKey) ?? "").trim();
     final cachedRaw = prefs.getString(_videoCacheKey) ?? "";
 
-    if (cachedRaw.isNotEmpty && currentVersion.isNotEmpty && cachedVersion == currentVersion) {
+    if (cachedRaw.isNotEmpty &&
+        currentVersion.isNotEmpty &&
+        cachedVersion == currentVersion) {
       final cachedItems = _parseVideoLinks(cachedRaw);
       if (cachedItems.isNotEmpty && mounted) {
         setState(() {
@@ -1351,7 +1509,9 @@ class _HomeScreenState extends State<HomeScreen>
     final categories = await dataManager.getSuggestedCategoriesForBike(
       selectedBike,
     );
-    final rawProducts = await dataManager.getSuggestedProductsForBike(selectedBike);
+    final rawProducts = await dataManager.getSuggestedProductsForBike(
+      selectedBike,
+    );
     final products = rawProducts
         .whereType<Map>()
         .map((item) => Product.fromJson(Map<String, dynamic>.from(item)))
@@ -1409,7 +1569,9 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      selectedBike.isEmpty ? "Bike Garage" : "For Your Bike: $selectedBike",
+                      selectedBike.isEmpty
+                          ? "Bike Garage"
+                          : "For Your Bike: $selectedBike",
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -1421,7 +1583,9 @@ class _HomeScreenState extends State<HomeScreen>
                     onPressed: () async {
                       await Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const BikeGarageScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const BikeGarageScreen(),
+                        ),
                       );
                       _refreshBikeGarage();
                     },
@@ -1465,6 +1629,8 @@ class _HomeScreenState extends State<HomeScreen>
                                   builder: (_) => ProductsScreen(
                                     categoryId: categoryId,
                                     title: title,
+                                    categorySlug: (category["slug"] ?? "")
+                                        .toString(),
                                   ),
                                 ),
                               );
@@ -1491,9 +1657,10 @@ class _HomeScreenState extends State<HomeScreen>
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => ProductDetailScreen(product: product),
+                              builder: (_) =>
+                                  ProductDetailScreen(product: product),
                             ),
-                          );
+                          ).then((_) => _loadRecentlyViewedProducts());
                         },
                         child: Container(
                           width: 150,
@@ -1516,7 +1683,8 @@ class _HomeScreenState extends State<HomeScreen>
                                     url: product.image,
                                     fit: BoxFit.cover,
                                     memCacheWidth: _homeProductImageCacheWidth,
-                                    maxWidthDiskCache: _homeProductImageCacheWidth,
+                                    maxWidthDiskCache:
+                                        _homeProductImageCacheWidth,
                                     filterQuality: FilterQuality.low,
                                   ),
                                 ),
@@ -1554,19 +1722,28 @@ class _HomeScreenState extends State<HomeScreen>
                                             style: const TextStyle(
                                               color: Colors.white70,
                                               fontSize: 12,
-                                              decoration: TextDecoration.lineThrough,
+                                              decoration:
+                                                  TextDecoration.lineThrough,
                                             ),
                                           ),
                                         if (product.discountPercent > 0)
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 3,
+                                            ),
                                             decoration: BoxDecoration(
                                               color: primaryRed,
-                                              borderRadius: BorderRadius.circular(999),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
                                             ),
                                             child: Text(
                                               "${product.discountPercent}% OFF",
-                                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                              ),
                                             ),
                                           ),
                                       ],
@@ -1642,12 +1819,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (seen.contains(youtubeId)) continue;
 
       seen.add(youtubeId);
-      items.add(
-        HomeBannerMedia.video(
-          sourceUrl: value,
-          youtubeId: youtubeId,
-        ),
-      );
+      items.add(HomeBannerMedia.video(sourceUrl: value, youtubeId: youtubeId));
     }
 
     return items;
@@ -1669,7 +1841,8 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (uri.pathSegments.isNotEmpty) {
         final first = uri.pathSegments.first.toLowerCase();
-        if ((first == "embed" || first == "shorts") && uri.pathSegments.length > 1) {
+        if ((first == "embed" || first == "shorts") &&
+            uri.pathSegments.length > 1) {
           return uri.pathSegments[1].trim();
         }
       }
@@ -1679,10 +1852,280 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _normalizeCategoryName(String value) {
-    return value
-        .toLowerCase()
-        .replaceAll(RegExp(r"[^a-z0-9]+"), " ")
-        .trim();
+    return value.toLowerCase().replaceAll(RegExp(r"[^a-z0-9]+"), " ").trim();
+  }
+
+  List<({String key, String title, IconData icon})>
+  _homeTopCategoryItems() {
+    return const [
+      (
+        key: "shop_by_category",
+        title: "All Categories",
+        icon: Icons.grid_view_rounded,
+      ),
+      (
+        key: "motorcycle_accessories",
+        title: "Accessories",
+        icon: Icons.two_wheeler_rounded,
+      ),
+      (
+        key: "riding_gears",
+        title: "Riding Gear",
+        icon: Icons.health_and_safety_rounded,
+      ),
+      (
+        key: "luggage_touring",
+        title: "Touring",
+        icon: Icons.luggage_rounded,
+      ),
+      (
+        key: "helmets_accessories",
+        title: "Helmets",
+        icon: Icons.sports_motorsports_rounded,
+      ),
+      (
+        key: "events",
+        title: "Top Brands",
+        icon: Icons.workspace_premium_rounded,
+      ),
+    ];
+  }
+
+  void _openHomeTopCategory(
+    ({String key, String title, IconData icon}) item,
+  ) {
+    setState(() => _selectedTopCategoryKey = item.key);
+
+    if (item.key == "shop_by_category") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ShopByCategoryScreen()),
+      );
+      return;
+    }
+
+    final remoteSource = TopCategoryDetailScreen.remoteSourceFor(item.key);
+    if (remoteSource != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ShopByCategoryScreen(
+            title: item.title,
+            sourceUrl: remoteSource.sourceUrl,
+            cacheKeyPrefix: remoteSource.cacheKeyPrefix,
+          ),
+        ),
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TopCategoryDetailScreen(
+          categoryKey: item.key,
+          title: item.title,
+          icon: item.icon,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeTopCategoryNavigation() {
+    final palette = context.appPalette;
+    final items = _homeTopCategoryItems();
+
+    return SizedBox(
+      height: 92,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final isSelected = item.key == _selectedTopCategoryKey;
+
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _openHomeTopCategory(item),
+              borderRadius: BorderRadius.circular(18),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                width: 104,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  gradient: isSelected
+                      ? LinearGradient(
+                          colors: [palette.accentStrong, palette.accent],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
+                  color: isSelected ? null : palette.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isSelected ? palette.accent : palette.border,
+                  ),
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: palette.accent.withOpacity(0.22),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      item.icon,
+                      size: 24,
+                      color: isSelected
+                          ? palette.onAccent
+                          : palette.textPrimary,
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: isSelected
+                            ? palette.onAccent
+                            : palette.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildRecentlyViewedSection() {
+    if (_recentlyViewedProducts.isEmpty) return const SizedBox.shrink();
+    final palette = context.appPalette;
+    final visibleProducts = _recentlyViewedProducts.take(10).toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildAnimatedHeading(
+                    "RECENTLY VIEWED",
+                    fontSize: 16,
+                  ),
+                ),
+                Icon(
+                  Icons.history_rounded,
+                  size: 20,
+                  color: palette.accent,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 190,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: visibleProducts.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final product = visibleProducts[index];
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ProductDetailScreen(product: product),
+                        ),
+                      );
+                      _loadRecentlyViewedProducts();
+                    },
+                    child: Container(
+                      width: 142,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: palette.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: palette.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: palette.surfaceStrong,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: AppCachedImage(
+                                url: product.image,
+                                fit: BoxFit.contain,
+                                memCacheWidth: _homeProductImageCacheWidth,
+                                maxWidthDiskCache: _homeProductImageCacheWidth,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            product.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: palette.textPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "₹${product.price}",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: palette.accent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildCategoryScroller(List<dynamic> categories) {
@@ -1717,6 +2160,7 @@ class _HomeScreenState extends State<HomeScreen>
                         builder: (_) => ProductsScreen(
                           categoryId: cat["id"],
                           title: cat["name"],
+                          categorySlug: (cat["slug"] ?? "").toString(),
                         ),
                       ),
                     );
@@ -1730,7 +2174,9 @@ class _HomeScreenState extends State<HomeScreen>
                           color: isWhiteTheme ? palette.surface : Colors.white,
                           borderRadius: BorderRadius.circular(40),
                           border: Border.all(
-                            color: isWhiteTheme ? palette.border : palette.accent,
+                            color: isWhiteTheme
+                                ? palette.border
+                                : palette.accent,
                             width: 2.6,
                           ),
                           boxShadow: [
@@ -1746,7 +2192,8 @@ class _HomeScreenState extends State<HomeScreen>
                           ],
                         ),
                         padding: const EdgeInsets.all(10),
-                        child: cat["image"] != null && cat["image"]["src"] != null
+                        child:
+                            cat["image"] != null && cat["image"]["src"] != null
                             ? AppCachedImage(
                                 url: (cat["image"]["src"] ?? "").toString(),
                                 fit: BoxFit.contain,
@@ -1912,26 +2359,14 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _titleAnimController.dispose();
-    _cartPulseController.dispose();
-    _searchCtaController.dispose();
-    _scrollController.dispose();
-    searchController.dispose();
-    _debounce?.cancel();
-    _internetRetryTimer?.cancel();
-    super.dispose();
-  }
-
   Future<void> _runAddToBagAnimation({
     required BuildContext startContext,
     required String imageUrl,
   }) async {
     final overlay = Overlay.of(context, rootOverlay: true);
     final startBox = startContext.findRenderObject() as RenderBox?;
-    final endBox = _cartIconKey.currentContext?.findRenderObject() as RenderBox?;
+    final endBox =
+        _cartIconKey.currentContext?.findRenderObject() as RenderBox?;
     if (overlay == null || startBox == null || endBox == null) {
       _cartPulseController.forward(from: 0);
       return;
@@ -1955,13 +2390,16 @@ class _HomeScreenState extends State<HomeScreen>
         final t = animation.value;
         final squeezeProgress = ((t - 0.76) / 0.24).clamp(0.0, 1.0);
         final size = lerpDouble(62, 16, t) ?? 24;
-        final dx = (lerpDouble(start.dx, end.dx, t) ?? end.dx) +
+        final dx =
+            (lerpDouble(start.dx, end.dx, t) ?? end.dx) +
             (math.sin(t * math.pi * 1.15) * 14 * (1 - t));
-        final dy = (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
+        final dy =
+            (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
             (math.sin(t * math.pi) * 138) -
             (squeezeProgress * 6);
-        final opacity =
-            t < 0.9 ? 1.0 : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
+        final opacity = t < 0.9
+            ? 1.0
+            : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
         final glowSize = size + 20;
         final iconSize = lerpDouble(18, 8, t) ?? 12;
         final scaleBoost = 1 + (math.sin(t * math.pi) * 0.16);
@@ -2086,7 +2524,10 @@ class _HomeScreenState extends State<HomeScreen>
                           decoration: BoxDecoration(
                             color: palette.accent,
                             shape: BoxShape.circle,
-                            border: Border.all(color: palette.surface, width: 1.5),
+                            border: Border.all(
+                              color: palette.surface,
+                              width: 1.5,
+                            ),
                           ),
                           child: Icon(
                             Icons.shopping_bag_rounded,
@@ -2134,7 +2575,9 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final now = DateTime.now().millisecondsSinceEpoch;
       final response = await http
-          .get(Uri.parse("https://yanaworldwide.store/Yanaapp/banner.txt?v=$now"))
+          .get(
+            Uri.parse("https://yanaworldwide.store/Yanaapp/banner.txt?v=$now"),
+          )
           .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return;
 
@@ -2180,8 +2623,8 @@ class _HomeScreenState extends State<HomeScreen>
               end: Alignment.bottomCenter,
             ),
           ),
-            padding: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + 8,
+          padding: EdgeInsets.only(
+            top: MediaQuery.of(context).padding.top + 8,
             left: 16,
             right: 16,
           ),
@@ -2198,7 +2641,9 @@ class _HomeScreenState extends State<HomeScreen>
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(22),
                       color: palette.surface,
-                      border: Border.all(color: palette.border.withOpacity(0.7)),
+                      border: Border.all(
+                        color: palette.border.withOpacity(0.7),
+                      ),
                     ),
                     child: Container(
                       padding: EdgeInsets.symmetric(
@@ -2206,10 +2651,9 @@ class _HomeScreenState extends State<HomeScreen>
                         vertical: palette.isLight ? 6 : 0,
                       ),
                       decoration: BoxDecoration(
-                        color:
-                            palette.isLight
-                                ? const Color(0xFF121212)
-                                : Colors.transparent,
+                        color: palette.isLight
+                            ? const Color(0xFF121212)
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Image.asset(
@@ -2229,257 +2673,271 @@ class _HomeScreenState extends State<HomeScreen>
                           mainAxisAlignment: MainAxisAlignment.end,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                      FutureBuilder<String?>(
-                        future: _authTokenFuture,
-                        builder: (context, snapshot) {
-                          // ⬇️ UPDATED: Added Signup Button next to Login ⬇️
-                          if (!snapshot.hasData || snapshot.data == null) {
-                            return Row(
-                              children: [
-                                IconButton(
-                                  tooltip: "Wallet",
-                                  icon: Icon(
-                                    Icons.account_balance_wallet_outlined,
-                                    color: palette.accent,
-                                    size: 20,
-                                  ),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const WalletScreen(),
-                                      ),
-                                    );
-                                  },
-                                  constraints: const BoxConstraints(
-                                    minHeight: 34,
-                                    minWidth: 34,
-                                  ),
-                                  padding: const EdgeInsets.all(5),
-                                ),
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    minimumSize: Size.zero,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                  ),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => LoginScreen(),
-                                      ),
-                                    ).then((_) => _refreshAuthToken());
-                                  },
-                                  child: Text(
-                                    "Login",
-                                    style: TextStyle(
-                                      color: palette.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                                Text(
-                                  "|",
-                                  style: TextStyle(color: palette.textMuted),
-                                ),
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    minimumSize: Size.zero,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                  ),
-                                  onPressed: () {
-                                    // ✅ STEP 3: Implement Signup Screen Navigation
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => SignupScreen(),
-                                      ),
-                                    ).then((_) => _refreshAuthToken());
-                                  },
-                                  child: Text(
-                                    "Signup",
-                                    style: TextStyle(
-                                      color: palette.accent,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
-                          // ⬆️ UPDATED: Added Signup Button next to Login ⬆️
-
-                          return Row(
-                            children: [
-                              IconButton(
-                                tooltip: "Wallet",
-                                icon: Icon(
-                                  Icons.account_balance_wallet_outlined,
-                                  color: palette.accent,
-                                  size: 20,
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const WalletScreen(),
-                                    ),
-                                  );
-                                },
-                                constraints: const BoxConstraints(
-                                  minHeight: 34,
-                                  minWidth: 34,
-                                ),
-                                padding: const EdgeInsets.all(5),
-                              ),
-                              FutureBuilder<bool>(
-                                future: AuthService().isPrivilegedAdmin(),
-                                builder: (context, adminSnapshot) {
-                                  if (adminSnapshot.data != true) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  return Padding(
-                                    padding: const EdgeInsets.only(right: 4),
-                                    child: TextButton.icon(
-                                      style: TextButton.styleFrom(
-                                        minimumSize: Size.zero,
-                                        tapTargetSize:
-                                            MaterialTapTargetSize.shrinkWrap,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 6,
+                            FutureBuilder<String?>(
+                              future: _authTokenFuture,
+                              builder: (context, snapshot) {
+                                // ⬇️ UPDATED: Added Signup Button next to Login ⬇️
+                                if (!snapshot.hasData ||
+                                    snapshot.data == null) {
+                                  return Row(
+                                    children: [
+                                      IconButton(
+                                        tooltip: "Wallet",
+                                        icon: Icon(
+                                          Icons.account_balance_wallet_outlined,
+                                          color: palette.accent,
+                                          size: 20,
                                         ),
-                                        backgroundColor:
-                                            palette.accent.withOpacity(0.14),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                          side: BorderSide(
-                                             color: palette.accent.withOpacity(0.35),
+                                        onPressed: () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const WalletScreen(),
+                                            ),
+                                          );
+                                        },
+                                        constraints: const BoxConstraints(
+                                          minHeight: 34,
+                                          minWidth: 34,
+                                        ),
+                                        padding: const EdgeInsets.all(5),
+                                      ),
+                                      TextButton(
+                                        style: TextButton.styleFrom(
+                                          minimumSize: Size.zero,
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
                                           ),
                                         ),
+                                        onPressed: () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => LoginScreen(),
+                                            ),
+                                          ).then((_) => _refreshAuthToken());
+                                        },
+                                        child: Text(
+                                          "Login",
+                                          style: TextStyle(
+                                            color: palette.textPrimary,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                      Text(
+                                        "|",
+                                        style: TextStyle(
+                                          color: palette.textMuted,
+                                        ),
+                                      ),
+                                      TextButton(
+                                        style: TextButton.styleFrom(
+                                          minimumSize: Size.zero,
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                        ),
+                                        onPressed: () {
+                                          // ✅ STEP 3: Implement Signup Screen Navigation
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => SignupScreen(),
+                                            ),
+                                          ).then((_) => _refreshAuthToken());
+                                        },
+                                        child: Text(
+                                          "Signup",
+                                          style: TextStyle(
+                                            color: palette.accent,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }
+                                // ⬆️ UPDATED: Added Signup Button next to Login ⬆️
+
+                                return Row(
+                                  children: [
+                                    IconButton(
+                                      tooltip: "Wallet",
+                                      icon: Icon(
+                                        Icons.account_balance_wallet_outlined,
+                                        color: palette.accent,
+                                        size: 20,
                                       ),
                                       onPressed: () {
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
                                             builder: (_) =>
-                                                const AdminDashboardScreen(),
+                                                const WalletScreen(),
                                           ),
                                         );
                                       },
-                                      icon: Icon(
-                                        Icons.admin_panel_settings_outlined,
-                                        color: palette.accent,
-                                        size: 16,
+                                      constraints: const BoxConstraints(
+                                        minHeight: 34,
+                                        minWidth: 34,
                                       ),
-                                      label: Text(
-                                        "Admin",
-                                        style: TextStyle(
-                                          color: palette.accent,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
+                                      padding: const EdgeInsets.all(5),
+                                    ),
+                                    FutureBuilder<bool>(
+                                      future: AuthService().isPrivilegedAdmin(),
+                                      builder: (context, adminSnapshot) {
+                                        if (adminSnapshot.data != true) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 4,
+                                          ),
+                                          child: TextButton.icon(
+                                            style: TextButton.styleFrom(
+                                              minimumSize: Size.zero,
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 6,
+                                                  ),
+                                              backgroundColor: palette.accent
+                                                  .withOpacity(0.14),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                side: BorderSide(
+                                                  color: palette.accent
+                                                      .withOpacity(0.35),
+                                                ),
+                                              ),
+                                            ),
+                                            onPressed: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const AdminDashboardScreen(),
+                                                ),
+                                              );
+                                            },
+                                            icon: Icon(
+                                              Icons
+                                                  .admin_panel_settings_outlined,
+                                              color: palette.accent,
+                                              size: 16,
+                                            ),
+                                            label: Text(
+                                              "Admin",
+                                              style: TextStyle(
+                                                color: palette.accent,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.person,
+                                        color: palette.textPrimary,
+                                        size: 20,
+                                      ),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const ProfileScreen(),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                            Consumer<CartProvider>(
+                              builder: (context, cart, child) {
+                                return Stack(
+                                  children: [
+                                    IconButton(
+                                      key: _cartIconKey,
+                                      icon: AnimatedBuilder(
+                                        animation: _cartPulseController,
+                                        builder: (context, child) {
+                                          final progress = Curves.elasticOut
+                                              .transform(
+                                                _cartPulseController.value
+                                                    .clamp(0.0, 1.0),
+                                              );
+                                          final scale = 1 + (0.24 * progress);
+                                          final rotation =
+                                              math.sin(progress * math.pi * 4) *
+                                              0.12 *
+                                              (1 - progress);
+                                          return Transform.rotate(
+                                            angle: rotation,
+                                            child: Transform.scale(
+                                              scale: scale,
+                                              child: child,
+                                            ),
+                                          );
+                                        },
+                                        child: Icon(
+                                          Icons.shopping_cart,
+                                          color: palette.textPrimary,
+                                          size: 20,
                                         ),
                                       ),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => const CartScreen(),
+                                          ),
+                                        );
+                                      },
                                     ),
-                                  );
-                                },
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  Icons.person,
-                                  color: palette.textPrimary,
-                                  size: 20,
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ProfileScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      Consumer<CartProvider>(
-                        builder: (context, cart, child) {
-                          return Stack(
-                            children: [
-                              IconButton(
-                                key: _cartIconKey,
-                                icon: AnimatedBuilder(
-                                  animation: _cartPulseController,
-                                  builder: (context, child) {
-                                    final progress = Curves.elasticOut.transform(
-                                      _cartPulseController.value.clamp(0.0, 1.0),
-                                    );
-                                    final scale = 1 + (0.24 * progress);
-                                    final rotation =
-                                        math.sin(progress * math.pi * 4) *
-                                        0.12 *
-                                        (1 - progress);
-                                    return Transform.rotate(
-                                      angle: rotation,
-                                      child: Transform.scale(
-                                        scale: scale,
-                                        child: child,
+                                    if (cart.items.isNotEmpty)
+                                      Positioned(
+                                        right: 5,
+                                        top: 5,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: palette.accent,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Text(
+                                            cart.items.length.toString(),
+                                            style: TextStyle(
+                                              color: palette.onAccent,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                    );
-                                  },
-                                  child: Icon(
-                                    Icons.shopping_cart,
-                                    color: palette.textPrimary,
-                                    size: 20,
-                                  ),
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const CartScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
-                              if (cart.items.isNotEmpty)
-                                Positioned(
-                                  right: 5,
-                                  top: 5,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: palette.accent,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Text(
-                                      cart.items.length.toString(),
-                                      style: TextStyle(
-                                        color: palette.onAccent,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
+                                  ],
+                                );
+                              },
+                            ),
                           ],
                         ),
                       ),
@@ -2601,12 +3059,15 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget buildMainContent() {
     final palette = context.appPalette;
-    final currentBanner = _bannerItems.isNotEmpty &&
+    final currentBanner =
+        _bannerItems.isNotEmpty &&
             _currentBannerIndex >= 0 &&
             _currentBannerIndex < _bannerItems.length
         ? _bannerItems[_currentBannerIndex]
         : null;
-    final autoPlayBanners = currentBanner == null ? true : !currentBanner.isVideo;
+    final autoPlayBanners = currentBanner == null
+        ? true
+        : !currentBanner.isVideo;
 
     return CustomScrollView(
       controller: _scrollController,
@@ -2623,14 +3084,14 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: palette.accent.withOpacity(0.78), width: 1.8),
+                    border: Border.all(
+                      color: palette.accent.withOpacity(0.78),
+                      width: 1.8,
+                    ),
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        palette.surfaceStrong,
-                        palette.surface,
-                      ],
+                      colors: [palette.surfaceStrong, palette.surface],
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -2680,8 +3141,12 @@ class _HomeScreenState extends State<HomeScreen>
                                         ? () {
                                             if (!mounted) return;
                                             if (_currentBannerIndex >= 0 &&
-                                                _currentBannerIndex < _bannerItems.length &&
-                                                identical(_bannerItems[_currentBannerIndex], item)) {
+                                                _currentBannerIndex <
+                                                    _bannerItems.length &&
+                                                identical(
+                                                  _bannerItems[_currentBannerIndex],
+                                                  item,
+                                                )) {
                                               setState(() {});
                                             }
                                           }
@@ -2693,22 +3158,23 @@ class _HomeScreenState extends State<HomeScreen>
                                         : null,
                                   ),
                                 ),
-                                Positioned.fill(
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                        colors: [
-                                          Colors.white.withOpacity(0.06),
-                                          Colors.transparent,
-                                          Colors.black.withOpacity(0.10),
-                                        ],
+                                if (!item.isVideo)
+                                  Positioned.fill(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(16),
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            Colors.white.withOpacity(0.06),
+                                            Colors.transparent,
+                                            Colors.black.withOpacity(0.10),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -2731,7 +3197,10 @@ class _HomeScreenState extends State<HomeScreen>
                 final offerLink = _extractOfferLink(offerText);
                 return Container(
                   height: 44,
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -2803,6 +3272,18 @@ class _HomeScreenState extends State<HomeScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _buildAnimatedHeading(
+                    "SHOP YOUR WAY",
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              _buildHomeTopCategoryNavigation(),
+              _buildRecentlyViewedSection(),
               FutureBuilder<_HomeCategorySectionData>(
                 future: _categorySectionFuture,
                 builder: (context, snapshot) {
@@ -2948,6 +3429,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 builder: (_) => ProductsScreen(
                                   categoryId: categoryId,
                                   title: "Foglight",
+                                  categorySlug: "foglight",
                                 ),
                               ),
                             );
@@ -2977,6 +3459,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 builder: (_) => ProductsScreen(
                                   categoryId: categoryId,
                                   title: "Frando Brake Pads",
+                                  categorySlug: "frando-brake-pads",
                                 ),
                               ),
                             );
@@ -3000,9 +3483,7 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
 
-        SliverToBoxAdapter(
-          child: _buildBikeGarageSection(),
-        ),
+        SliverToBoxAdapter(child: _buildBikeGarageSection()),
 
         SliverToBoxAdapter(
           child: Padding(
@@ -3037,7 +3518,10 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: palette.surface,
                     borderRadius: BorderRadius.circular(999),
@@ -3109,13 +3593,14 @@ class _HomeScreenState extends State<HomeScreen>
 
                   return _buildProductGridCard(product, palette);
                 },
-                childCount: (isInitialLoading && products.isEmpty) ? 6 : products.length,
+                childCount: (isInitialLoading && products.isEmpty)
+                    ? 6
+                    : products.length,
                 addAutomaticKeepAlives: false,
                 addRepaintBoundaries: true,
               ),
             ),
           ),
-
       ],
     );
   }
@@ -3185,7 +3670,9 @@ class _HomeScreenState extends State<HomeScreen>
               Expanded(
                 child: _buildSaleButton(
                   title: "Daily Sale",
-                  subtitle: _dailySaleEnabled ? "Today picks" : "Currently disabled",
+                  subtitle: _dailySaleEnabled
+                      ? "Today picks"
+                      : "Currently disabled",
                   icon: Icons.bolt_rounded,
                   colors: const [Color(0xFFFF7A18), Color(0xFFFFB347)],
                   isEnabled: _dailySaleEnabled,
@@ -3206,7 +3693,9 @@ class _HomeScreenState extends State<HomeScreen>
               Expanded(
                 child: _buildSaleButton(
                   title: "Big Days Sale",
-                  subtitle: _bigDaysSaleEnabled ? "Event deals" : "Currently disabled",
+                  subtitle: _bigDaysSaleEnabled
+                      ? "Event deals"
+                      : "Currently disabled",
                   icon: Icons.local_fire_department_rounded,
                   colors: const [Color(0xFFE53935), Color(0xFFFF7043)],
                   isEnabled: _bigDaysSaleEnabled,
@@ -3548,13 +4037,13 @@ class _HomeScreenState extends State<HomeScreen>
             Navigator.push(
               context,
               PageRouteBuilder(
-                pageBuilder:
-                    (_, __, ___) => ProductDetailScreen(product: product),
+                pageBuilder: (_, __, ___) =>
+                    ProductDetailScreen(product: product),
                 transitionsBuilder: (_, animation, __, child) {
                   return FadeTransition(opacity: animation, child: child);
                 },
               ),
-            );
+            ).then((_) => _loadRecentlyViewedProducts());
           },
           child: Container(
             decoration: BoxDecoration(
@@ -3651,8 +4140,8 @@ class _HomeScreenState extends State<HomeScreen>
                               style: TextStyle(
                                 color:
                                     palette.highlight.computeLuminance() > 0.45
-                                        ? Colors.black
-                                        : Colors.white,
+                                    ? Colors.black
+                                    : Colors.white,
                                 fontSize: 8.5,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -3718,7 +4207,8 @@ class _HomeScreenState extends State<HomeScreen>
                 Consumer<CartProvider>(
                   builder: (context, cart, _) {
                     final isInCart = cart.items.any(
-                      (item) => item.id == product.id && item.variationId == null,
+                      (item) =>
+                          item.id == product.id && item.variationId == null,
                     );
 
                     return Padding(
@@ -3727,8 +4217,9 @@ class _HomeScreenState extends State<HomeScreen>
                         width: double.infinity,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                isInCart ? palette.surfaceStrong : palette.accent,
+                            backgroundColor: isInCart
+                                ? palette.surfaceStrong
+                                : palette.accent,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(999),
@@ -3770,7 +4261,9 @@ class _HomeScreenState extends State<HomeScreen>
                           child: Text(
                             isInCart ? "Go to Bag" : "Add to Bag",
                             style: TextStyle(
-                              color: isInCart ? palette.textPrimary : palette.onAccent,
+                              color: isInCart
+                                  ? palette.textPrimary
+                                  : palette.onAccent,
                               fontWeight: FontWeight.w800,
                               fontSize: 11.5,
                             ),
@@ -3807,16 +4300,16 @@ class _HomeScreenState extends State<HomeScreen>
           palette: palette,
           icon: Icons.bolt_rounded,
           title: "RCB",
-          onTap: (startContext) => _fillSearchFromBadgeAnimated("RCB", startContext),
+          onTap: (startContext) =>
+              _fillSearchFromBadgeAnimated("RCB", startContext),
         ),
         const SizedBox(width: 8),
         _buildHeroBadge(
           palette: palette,
           icon: Icons.flash_on_rounded,
           title: "UMA Racing",
-          onTap:
-              (startContext) =>
-                  _fillSearchFromBadgeAnimated("UMA Racing", startContext),
+          onTap: (startContext) =>
+              _fillSearchFromBadgeAnimated("UMA Racing", startContext),
         ),
       ],
     );
@@ -3954,13 +4447,13 @@ class _HomeScreenState extends State<HomeScreen>
             Row(
               children: [
                 Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: palette.surfaceStrong,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: palette.border),
-                      ),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: palette.surfaceStrong,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: palette.border),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -4064,7 +4557,9 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   InkWell(
                     onTap: () {
-                      setState(() => _quickAccessExpanded = !_quickAccessExpanded);
+                      setState(
+                        () => _quickAccessExpanded = !_quickAccessExpanded,
+                      );
                     },
                     borderRadius: BorderRadius.circular(14),
                     child: Container(
@@ -4090,7 +4585,9 @@ class _HomeScreenState extends State<HomeScreen>
                       onTap: () async {
                         await Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const BikeGarageScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const BikeGarageScreen(),
+                          ),
                         );
                         _refreshBikeGarage();
                       },
@@ -4102,7 +4599,9 @@ class _HomeScreenState extends State<HomeScreen>
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const AIBrainScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const AIBrainScreen(),
+                          ),
                         );
                       },
                     ),
@@ -4237,10 +4736,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(
-                    Icons.groups_rounded,
-                    color: palette.onAccent,
-                  ),
+                  child: Icon(Icons.groups_rounded, color: palette.onAccent),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -4282,13 +4778,13 @@ class _HomeScreenState extends State<HomeScreen>
             Row(
               children: [
                 Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: palette.surfaceStrong,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: palette.border),
-                      ),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: palette.surfaceStrong,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: palette.border),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -4393,10 +4889,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(
-                    Icons.route_rounded,
-                    color: palette.onAccent,
-                  ),
+                  child: Icon(Icons.route_rounded, color: palette.onAccent),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -4490,7 +4983,7 @@ class _HomeScreenState extends State<HomeScreen>
                     color: isEnabled ? Colors.black : Colors.white,
                   ),
                 ),
-                  const SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -4553,6 +5046,3 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 }
-
-
-

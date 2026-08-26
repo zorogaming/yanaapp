@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/cart_provider.dart';
 import '../services/auth_service.dart';
 import '../services/analytics_service.dart';
 import '../services/notification_inbox_service.dart';
 import '../services/woo_service.dart';
+import '../services/whatsapp_community_popup_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/whatsapp_community_popup.dart';
 import 'cart_screen.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
@@ -25,7 +30,12 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int currentIndex = 0;
   bool _startupReady = false;
+  bool _communityPopupShown = false;
+  Timer? _communityPopupTimer;
   final AuthService _authService = AuthService();
+  Uri _whatsappCommunityUri = Uri.parse(
+    WhatsAppCommunityPopupService.defaultInviteUrl,
+  );
   AppThemePalette get _palette => context.appPalette;
   static const List<String> _tabNames = [
     "home",
@@ -53,6 +63,12 @@ class _MainNavigationState extends State<MainNavigation> {
     _prepareStartup();
   }
 
+  @override
+  void dispose() {
+    _communityPopupTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _prepareStartup() async {
     try {
       await WooService()
@@ -66,6 +82,46 @@ class _MainNavigationState extends State<MainNavigation> {
     setState(() {
       _startupReady = true;
     });
+    _scheduleCommunityPopup();
+  }
+
+  void _scheduleCommunityPopup() {
+    if (_communityPopupShown || _communityPopupTimer != null) return;
+    _communityPopupTimer = Timer(const Duration(seconds: 16), () async {
+      final shouldShow = await _loadCommunityPopupConfig();
+      if (shouldShow) await _showCommunityPopup();
+    });
+  }
+
+  Future<bool> _loadCommunityPopupConfig() async {
+    try {
+      final config = await WhatsAppCommunityPopupService.instance.getConfig();
+      _whatsappCommunityUri = Uri.parse(config.inviteUrl);
+      return config.enabled;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _showCommunityPopup() async {
+    if (!mounted || _communityPopupShown) return;
+    _communityPopupShown = true;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.62),
+      builder: (dialogContext) {
+        return WhatsappCommunityPopup(
+          onJoinNow: () async {
+            Navigator.of(dialogContext).pop();
+            await launchUrl(
+              _whatsappCommunityUri,
+              mode: LaunchMode.externalApplication,
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -88,7 +144,8 @@ class _MainNavigationState extends State<MainNavigation> {
         children: screens,
       ),
       bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+        top: false,
+        minimum: EdgeInsets.zero,
         child: Consumer<CartProvider>(
           builder: (context, cart, child) {
             return ValueListenableBuilder<int>(
@@ -97,7 +154,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(28),
+                    borderRadius: BorderRadius.zero,
                     color: palette.accent,
                     boxShadow: [
                       BoxShadow(

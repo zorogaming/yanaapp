@@ -361,10 +361,9 @@ packages:
   flutter_cashfree_pg_sdk:
     dependency: "direct main"
     description:
-      name: flutter_cashfree_pg_sdk
-      sha256: "05f973fabc59a5721db471279ab447899921651dbf546795a5d7fb3d712b4418"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/flutter_cashfree_pg_sdk"
+      relative: true
+    source: path
     version: "2.2.10+48"
   flutter_html:
     dependency: "direct main"
@@ -433,10 +432,9 @@ packages:
   flutter_snapmint_sdk:
     dependency: "direct main"
     description:
-      name: flutter_snapmint_sdk
-      sha256: d4e606ac4542b58210b8a9fc4dc7323a45cc63bb96cee64a71d8d8027f508d10
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/flutter_snapmint_sdk"
+      relative: true
+    source: path
     version: "0.0.10"
   flutter_test:
     dependency: "direct dev"
@@ -835,10 +833,9 @@ packages:
   razorpay_flutter:
     dependency: "direct main"
     description:
-      name: razorpay_flutter
-      sha256: "8d985b769808cb6c8d3f2fbcc25f9ab78e29191965c31c98e2d69d55d9d20ff1"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/razorpay_flutter"
+      relative: true
+    source: path
     version: "1.4.3"
   rxdart:
     dependency: transitive
@@ -1166,7 +1163,7 @@ packages:
     source: hosted
     version: "2.14.0"
   webview_flutter_wkwebview:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: webview_flutter_wkwebview
       sha256: "0412b657a2828fb301e73509909e6ec02b77cd2b441ae9f77125d482b3ddf0e7"

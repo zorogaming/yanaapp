@@ -30,6 +30,12 @@ class RazorpayService {
 
   late final Razorpay _razorpay;
   Completer<RazorpayPaymentResult>? _paymentCompleter;
+  Timer? _checkoutWatchdogTimer;
+  Timer? _paymentRecoveryTimer;
+  bool _isRecoveringPayment = false;
+
+  bool get hasPendingPayment =>
+      _paymentCompleter != null && !_paymentCompleter!.isCompleted;
 
   Future<RazorpayPaymentResult> startPayment({
     required String keyId,
@@ -39,6 +45,8 @@ class RazorpayService {
     required String email,
     required String phone,
     String description = "Yanaworldwide Order",
+    Future<RazorpayPaymentResult?> Function(String razorpayOrderId)?
+    recoverPayment,
   }) async {
     final normalizedName = name.trim().isEmpty ? "Customer" : name.trim();
     final normalizedEmail = email.trim().isEmpty
@@ -66,10 +74,26 @@ class RazorpayService {
     }
 
     _paymentCompleter = Completer<RazorpayPaymentResult>();
+    _checkoutWatchdogTimer?.cancel();
+    _checkoutWatchdogTimer = Timer(const Duration(minutes: 4), () {
+      if (!hasPendingPayment) return;
+      _closeNativeCheckout();
+      _complete(
+        const RazorpayPaymentResult(
+          success: false,
+          failureReason: "Razorpay checkout timed out. Please try again.",
+        ),
+      );
+    });
+    _startRecoveryPolling(orderId.trim(), recoverPayment);
     final amountInPaise = (amount * 100).round();
+    print(
+      "[RAZORPAY][NATIVE] opening checkout orderId=${orderId.trim()} amountPaise=$amountInPaise",
+    );
     final options = <String, dynamic>{
       "key": keyId.trim(),
       "amount": amountInPaise,
+      "currency": "INR",
       "order_id": orderId.trim(),
       "name": "Yana Worldwide",
       "description": description,
@@ -79,13 +103,16 @@ class RazorpayService {
         "contact": normalizedPhone,
       },
       "retry": {"enabled": true, "max_count": 1},
+      "modal": {"confirm_close": true},
       "send_sms_hash": true,
       "theme": {"color": "#1E3A8A"},
     };
 
     try {
       _razorpay.open(options);
+      print("[RAZORPAY][NATIVE] open invoked");
     } catch (e) {
+      print("[RAZORPAY][NATIVE] open threw error=$e");
       return RazorpayPaymentResult(
         success: false,
         failureReason: "Unable to open Razorpay: $e",
@@ -101,6 +128,42 @@ class RazorpayService {
     );
   }
 
+  void _startRecoveryPolling(
+    String razorpayOrderId,
+    Future<RazorpayPaymentResult?> Function(String razorpayOrderId)?
+    recoverPayment,
+  ) {
+    _paymentRecoveryTimer?.cancel();
+    _isRecoveringPayment = false;
+    if (recoverPayment == null) return;
+
+    _paymentRecoveryTimer = Timer.periodic(const Duration(seconds: 5), (
+      timer,
+    ) async {
+      if (!hasPendingPayment) {
+        timer.cancel();
+        return;
+      }
+      if (_isRecoveringPayment) return;
+      _isRecoveringPayment = true;
+      try {
+        print("[RAZORPAY][NATIVE] recovery poll orderId=$razorpayOrderId");
+        final recovered = await recoverPayment(razorpayOrderId);
+        if (recovered != null && recovered.success && hasPendingPayment) {
+          print(
+            "[RAZORPAY][NATIVE] recovery success paymentId=${recovered.paymentId}",
+          );
+          _closeNativeCheckout();
+          _complete(recovered);
+        }
+      } catch (e) {
+        print("[RAZORPAY][NATIVE] recovery error=$e");
+      } finally {
+        _isRecoveringPayment = false;
+      }
+    });
+  }
+
   String _normalizePhone(String raw) {
     final digits = raw.replaceAll(RegExp(r"[^0-9]"), "");
     if (digits.length <= 10) return digits;
@@ -108,6 +171,9 @@ class RazorpayService {
   }
 
   void _onPaymentSuccess(PaymentSuccessResponse response) {
+    print(
+      "[RAZORPAY][NATIVE] success paymentId=${response.paymentId} orderId=${response.orderId} signaturePresent=${(response.signature ?? '').isNotEmpty}",
+    );
     _complete(
       RazorpayPaymentResult(
         success: true,
@@ -119,6 +185,9 @@ class RazorpayService {
   }
 
   void _onPaymentError(PaymentFailureResponse response) {
+    print(
+      "[RAZORPAY][NATIVE] error code=${response.code} message=${response.message} body=${response.error}",
+    );
     final rawMessage = (response.message ?? "").trim();
     final normalizedMessage =
         rawMessage.isEmpty ||
@@ -136,6 +205,7 @@ class RazorpayService {
   }
 
   void _onExternalWallet(ExternalWalletResponse response) {
+    print("[RAZORPAY][NATIVE] external wallet=${response.walletName}");
     _complete(
       RazorpayPaymentResult(
         success: false,
@@ -147,12 +217,38 @@ class RazorpayService {
   }
 
   void _complete(RazorpayPaymentResult result) {
-    if (_paymentCompleter != null && !_paymentCompleter!.isCompleted) {
-      _paymentCompleter!.complete(result);
+    print(
+      "[RAZORPAY][NATIVE] complete success=${result.success} paymentId=${result.paymentId} reason=${result.failureReason}",
+    );
+    _checkoutWatchdogTimer?.cancel();
+    _checkoutWatchdogTimer = null;
+    _paymentRecoveryTimer?.cancel();
+    _paymentRecoveryTimer = null;
+    _isRecoveringPayment = false;
+    final completer = _paymentCompleter;
+    _paymentCompleter = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(result);
     }
   }
 
+  void cancelPending({String reason = "Razorpay checkout was closed"}) {
+    print("[RAZORPAY][NATIVE] cancelPending reason=$reason");
+    _closeNativeCheckout();
+    _complete(RazorpayPaymentResult(success: false, failureReason: reason));
+  }
+
+  void _closeNativeCheckout() {
+    try {
+      print("[RAZORPAY][NATIVE] close requested");
+      unawaited(_razorpay.close());
+    } catch (_) {}
+  }
+
   void dispose() {
+    if (hasPendingPayment) {
+      cancelPending(reason: "Razorpay checkout was closed");
+    }
     _razorpay.clear();
   }
 }

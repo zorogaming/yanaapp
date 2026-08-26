@@ -17,8 +17,10 @@ import 'services/analytics_service.dart';
 import 'services/auth_service.dart';
 import 'services/admin_service.dart';
 import 'services/app_sound_service.dart';
+import 'services/checkout_notification_suppression_service.dart';
 import 'services/coupon_service.dart';
 import 'services/notification_inbox_service.dart';
+import 'services/wallet_reminder_service.dart';
 import 'screens/forgot_password_screen.dart';
 import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
@@ -35,6 +37,7 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 bool _localNotificationsInitialized = false;
+const Duration _startupServiceTimeout = Duration(seconds: 8);
 
 Future<void> _ensureLocalNotificationsInitialized() async {
   if (_localNotificationsInitialized) return;
@@ -52,7 +55,9 @@ Future<void> _ensureLocalNotificationsInitialized() async {
     iOS: initializationSettingsDarwin,
   );
 
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  await flutterLocalNotificationsPlugin
+      .initialize(initializationSettings)
+      .timeout(_startupServiceTimeout);
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin
@@ -63,6 +68,12 @@ Future<void> _ensureLocalNotificationsInitialized() async {
 }
 
 Future<void> _showLocalNotification(RemoteMessage message) async {
+  if (CheckoutNotificationSuppressionService.instance
+      .shouldSuppressForegroundAlert(message)) {
+    debugPrint('Foreground order-created notification suppressed on checkout.');
+    return;
+  }
+
   final RemoteNotification? notification = message.notification;
   final title =
       notification?.title ??
@@ -109,7 +120,12 @@ Future<void> _captureCouponFromMessage(RemoteMessage message) async {
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  try {
+    await Firebase.initializeApp().timeout(_startupServiceTimeout);
+  } catch (error) {
+    debugPrint('Firebase background disabled: $error');
+    return;
+  }
   await NotificationInboxService.instance.captureFromRemoteMessage(
     message,
     source: 'background',
@@ -120,11 +136,17 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await _ensureLocalNotificationsInitialized();
+  final firebaseReady = await _initializeFirebaseFailOpen();
+  if (firebaseReady) {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  }
+  unawaited(
+    _ensureLocalNotificationsInitialized().catchError((error) {
+      debugPrint('Local notifications disabled: $error');
+    }),
+  );
   final themeController = AppThemeController();
-  await themeController.load();
+  unawaited(themeController.load().catchError((_) {}));
 
   runApp(
     MultiProvider(
@@ -133,13 +155,25 @@ void main() async {
         ChangeNotifierProvider(create: (_) => CartProvider()),
         ChangeNotifierProvider(create: (_) => WishlistProvider()),
       ],
-      child: const MyApp(),
+      child: MyApp(firebaseReady: firebaseReady),
     ),
   );
 }
 
+Future<bool> _initializeFirebaseFailOpen() async {
+  try {
+    await Firebase.initializeApp().timeout(_startupServiceTimeout);
+    return true;
+  } catch (error) {
+    debugPrint('Firebase disabled: $error');
+    return false;
+  }
+}
+
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, required this.firebaseReady});
+
+  final bool firebaseReady;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -162,10 +196,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _bootstrapTelemetry();
-    _setupFCM();
+    if (widget.firebaseReady) {
+      _setupFCM();
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _checkForAppUpdate();
       await _checkForAdminTriggeredUpdate(force: true);
+      unawaited(
+        WalletReminderService.instance.checkRemoteAndShowIfDue().catchError(
+          (_) {},
+        ),
+      );
     });
     _scheduleNextAdminUpdateCheck();
   }
@@ -186,6 +227,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       );
       _checkForAppUpdate();
       _checkForAdminTriggeredUpdate(force: true);
+      unawaited(
+        WalletReminderService.instance.checkRemoteAndShowIfDue().catchError(
+          (_) {},
+        ),
+      );
       _scheduleNextAdminUpdateCheck();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
@@ -323,10 +369,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       final currentVersion = await _getCurrentAppVersion();
       final minVersion = (data["min_version"] ?? "").toString().trim();
       final latestVersion = (data["latest_version"] ?? "").toString().trim();
-      final requiredVersion =
-          minVersion.isNotEmpty
-              ? minVersion
-              : (latestVersion.isNotEmpty ? latestVersion : "");
+      final requiredVersion = minVersion.isNotEmpty
+          ? minVersion
+          : (latestVersion.isNotEmpty ? latestVersion : "");
       final forceUpdate = data["force_update"] == true;
       if (requiredVersion.isNotEmpty &&
           _compareVersions(currentVersion, requiredVersion) >= 0) {
@@ -347,10 +392,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
       _adminUpdateDialogShown = true;
       final title = (data["title"] ?? "Update Available").toString().trim();
-      final message = (data["message"] ??
-              "A new app version is available. Please update the app.")
-          .toString()
-          .trim();
+      final message =
+          (data["message"] ??
+                  "A new app version is available. Please update the app.")
+              .toString()
+              .trim();
       final url = (data["url"] ?? "").toString().trim();
 
       final AppUpdateInfo? updateInfo = await _getPlayStoreUpdateInfo();
@@ -369,10 +415,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       await _showPlayStoreFallbackDialog(
         title: title.isEmpty ? "Update Available" : title,
         message: _buildUpdateMessage(
-          baseMessage:
-              message.isEmpty
-                  ? "A new app version is available. Please update the app."
-                  : message,
+          baseMessage: message.isEmpty
+              ? "A new app version is available. Please update the app."
+              : message,
           currentVersion: currentVersion,
           latestVersion: latestVersion,
           minVersion: minVersion,
@@ -538,6 +583,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<void> _setupFCM() async {
     final FirebaseMessaging messaging = FirebaseMessaging.instance;
 
+    await messaging.setAutoInitEnabled(true);
+
     if (Platform.isAndroid) {
       await flutterLocalNotificationsPlugin
           .resolvePlatformSpecificImplementation<
@@ -555,16 +602,24 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     print('FCM permission: ${settings.authorizationStatus}');
 
+    final apnsToken = Platform.isIOS ? await messaging.getAPNSToken() : null;
     final token = await messaging.getToken();
+    if (Platform.isIOS) {
+      print('APNs token: $apnsToken');
+    }
     print('FCM token: $token');
     final currentVersion = await _getCurrentAppVersion();
     await AnalyticsService.instance.setAppVersion(currentVersion);
     if (token != null && token.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("fcm_token", token);
+      if (apnsToken != null && apnsToken.isNotEmpty) {
+        await prefs.setString("apns_token", apnsToken);
+      }
       await AnalyticsService.instance.registerPushToken(
         token: token,
         platform: Platform.isIOS ? "ios" : "android",
+        apnsToken: apnsToken ?? "",
       );
     }
     messaging.onTokenRefresh.listen((newToken) {
@@ -585,22 +640,33 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       sound: true,
     );
 
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      NotificationInboxService.instance.captureFromRemoteMessage(
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      print(
+        'FCM foreground message received: ${message.messageId} data=${message.data}',
+      );
+      await NotificationInboxService.instance.captureFromRemoteMessage(
         message,
         source: 'foreground',
       );
-      _captureCouponFromMessage(message);
-      AppSoundService.instance.playNotificationSound();
-      _showLocalNotification(message);
+      await _captureCouponFromMessage(message);
+      final suppressAlert = CheckoutNotificationSuppressionService.instance
+          .shouldSuppressForegroundAlert(message);
+      if (!suppressAlert) {
+        AppSoundService.instance.playNotificationSound();
+        await _showLocalNotification(message);
+      } else {
+        debugPrint(
+          'Foreground order-created notification sound suppressed on checkout.',
+        );
+      }
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      NotificationInboxService.instance.captureFromRemoteMessage(
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
+      await NotificationInboxService.instance.captureFromRemoteMessage(
         message,
         source: 'opened_app',
       );
-      _captureCouponFromMessage(message);
+      await _captureCouponFromMessage(message);
       print("Notification clicked. Data: ${message.data}");
     });
 
@@ -611,7 +677,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         source: 'initial_message',
       );
       await _captureCouponFromMessage(initialMessage);
-      print("Opened from terminated notification. Data: ${initialMessage.data}");
+      print(
+        "Opened from terminated notification. Data: ${initialMessage.data}",
+      );
     }
   }
 
@@ -625,8 +693,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           theme: AppThemes.themeDataFor(themeController.mode),
           themeAnimationDuration: const Duration(milliseconds: 260),
           routes: {
-            ForgotPasswordScreen.routeName: (_) =>
-                const ForgotPasswordScreen(),
+            ForgotPasswordScreen.routeName: (_) => const ForgotPasswordScreen(),
           },
           home: const SplashScreen(),
         );

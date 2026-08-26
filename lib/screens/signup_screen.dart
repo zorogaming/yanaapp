@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../services/auth_service.dart';
+import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
+import 'main_navigation.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -69,8 +72,27 @@ class _SignupScreenState extends State<SignupScreen> {
 
       if (response.statusCode == 201) {
         if (!mounted) return;
+        final auth = AuthService();
+        final loginResult = await auth.login(
+          emailController.text.trim(),
+          passwordController.text,
+        );
+        if (loginResult != null) {
+          await auth.syncFcmTopicForCurrentUser();
+          await WooService().fetchWalletOverview();
+        }
+
+        if (!mounted) return;
         _showThemedSnackBar('Account Created Successfully!');
-        Navigator.pop(context);
+        if (loginResult != null) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const MainNavigation()),
+            (route) => false,
+          );
+        } else {
+          Navigator.pop(context);
+        }
         return;
       }
 

@@ -12,6 +12,7 @@ import 'admin_home_popup_screen.dart';
 import 'admin_ride_community_control_screen.dart';
 import 'admin_update_notification_screen.dart';
 import 'admin_user_credits_screen.dart';
+import 'admin_whatsapp_community_popup_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -596,6 +597,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               subtitle: 'Dismissible home popup send ya manage karo',
                               onTap: () => _openScreen(
                                 const AdminHomePopupScreen(),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _actionTile(
+                              icon: Icons.chat_rounded,
+                              title: 'WhatsApp Community Popup',
+                              subtitle:
+                                  'Customer popup enable karo aur invite link manage karo',
+                              onTap: () => _openScreen(
+                                const AdminWhatsAppCommunityPopupScreen(),
                               ),
                             ),
                             const SizedBox(height: 10),

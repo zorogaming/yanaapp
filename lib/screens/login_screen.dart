@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
+import '../services/woo_service.dart';
 import 'forgot_password_screen.dart';
 import '../theme/app_theme.dart';
 import 'main_navigation.dart';
@@ -142,6 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (result != null) {
       final prefs = await SharedPreferences.getInstance();
       await auth.syncFcmTopicForCurrentUser();
+      await WooService().fetchWalletOverview();
 
       // 🔥 Ask user before enabling biometric
       if (isBiometricAvailable &&

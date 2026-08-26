@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/cart_item.dart';
 import '../services/analytics_service.dart';
+import '../services/coupon_service.dart';
 
 class CartProvider extends ChangeNotifier {
   List<CartItem> _items = [];
@@ -20,7 +22,8 @@ class CartProvider extends ChangeNotifier {
 
   void addToCart(CartItem item) {
     int index = _items.indexWhere(
-        (e) => e.id == item.id && e.variationId == item.variationId);
+      (e) => e.id == item.id && e.variationId == item.variationId,
+    );
 
     if (index >= 0) {
       _items[index].quantity += item.quantity;
@@ -29,6 +32,7 @@ class CartProvider extends ChangeNotifier {
     }
 
     saveCart();
+    _queueCartReminder();
     AnalyticsService.instance.logAddToCart(
       productId: item.id,
       productName: item.name,
@@ -39,7 +43,9 @@ class CartProvider extends ChangeNotifier {
   }
 
   void removeItem(int id, {int? variationId}) {
-    final removed = _items.where((e) => e.id == id && e.variationId == variationId);
+    final removed = _items.where(
+      (e) => e.id == id && e.variationId == variationId,
+    );
     _items.removeWhere((e) => e.id == id && e.variationId == variationId);
     for (final item in removed) {
       AnalyticsService.instance.logPaymentStatus(
@@ -51,27 +57,32 @@ class CartProvider extends ChangeNotifier {
     }
 
     saveCart();
+    _queueCartReminder();
     notifyListeners();
   }
 
   void increaseQty(int id, {int? variationId}) {
-    int index =
-        _items.indexWhere((e) => e.id == id && e.variationId == variationId);
+    int index = _items.indexWhere(
+      (e) => e.id == id && e.variationId == variationId,
+    );
 
     if (index >= 0) {
       _items[index].quantity++;
       saveCart();
+      _queueCartReminder();
       notifyListeners();
     }
   }
 
   void decreaseQty(int id, {int? variationId}) {
-    int index =
-        _items.indexWhere((e) => e.id == id && e.variationId == variationId);
+    int index = _items.indexWhere(
+      (e) => e.id == id && e.variationId == variationId,
+    );
 
     if (index >= 0 && _items[index].quantity > 1) {
       _items[index].quantity--;
       saveCart();
+      _queueCartReminder();
       notifyListeners();
     }
   }
@@ -85,10 +96,7 @@ class CartProvider extends ChangeNotifier {
   Future<void> saveCart() async {
     final prefs = await SharedPreferences.getInstance();
 
-    prefs.setString(
-      "cart",
-      jsonEncode(_items.map((e) => e.toJson()).toList()),
-    );
+    prefs.setString("cart", jsonEncode(_items.map((e) => e.toJson()).toList()));
   }
 
   Future<void> loadCart() async {
@@ -102,6 +110,21 @@ class CartProvider extends ChangeNotifier {
       _items = decoded.map((e) => CartItem.fromJson(e)).toList();
 
       notifyListeners();
+      _queueCartReminder();
     }
+  }
+
+  void _queueCartReminder() {
+    if (_items.isEmpty) return;
+    final firstProductName = _items.first.name;
+    unawaited(
+      CouponService.instance
+          .showCartReminderIfNeeded(
+            cartTotal: total,
+            itemCount: itemCount,
+            productName: firstProductName,
+          )
+          .catchError((_) {}),
+    );
   }
 }

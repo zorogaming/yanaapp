@@ -36,6 +36,9 @@ migrate_working_dir/
 /.gradle-local/
 /.gradle_local/
 /android/build/
+/ios/build/
+/ios/Runner/GoogleService-Info.plist
+/third_party/*/example/
 
 # Symbolication related
 app.*.symbols

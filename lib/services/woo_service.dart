@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
@@ -52,8 +53,8 @@ class WooService {
 
   static double partialAdvanceRate(double totalAmount) {
     if (totalAmount > 10000) return 0.20;
-    if (totalAmount > 5000) return 0.15;
-    return 0.08;
+    if (totalAmount > 5000) return 0.20;
+    return 0.20;
   }
 
   static double partialAdvanceAmount(double totalAmount) {
@@ -89,6 +90,21 @@ class WooService {
     return Uri.parse("$scheme://$host/wp-json/wp/v1/$endpoint");
   }
 
+  Future<String> _getOrCreateInstallId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = (prefs.getString("anonymous_install_id") ?? "").trim();
+    if (existing.isNotEmpty) return existing;
+
+    final random = Random.secure();
+    final suffix = List.generate(
+      8,
+      (_) => random.nextInt(16).toRadixString(16),
+    ).join();
+    final installId = "guest_${DateTime.now().millisecondsSinceEpoch}_$suffix";
+    await prefs.setString("anonymous_install_id", installId);
+    return installId;
+  }
+
   String _normalizeTaxClassKey(String? raw) {
     final value = raw?.trim().toLowerCase() ?? "";
     return value.isEmpty ? _defaultTaxClassKey : value;
@@ -117,9 +133,7 @@ class WooService {
     String? taxClass,
   ) {
     final classKey = _normalizeTaxClassKey(taxClass);
-    return ratesByClass[classKey] ??
-        ratesByClass[_defaultTaxClassKey] ??
-        0.0;
+    return ratesByClass[classKey] ?? ratesByClass[_defaultTaxClassKey] ?? 0.0;
   }
 
   String _applyDisplayTax({
@@ -192,9 +206,7 @@ class WooService {
           for (final rawItem in decoded) {
             if (rawItem is! Map) continue;
             final item = Map<String, dynamic>.from(rawItem);
-            final classKey = _normalizeTaxClassKey(
-              item["class"]?.toString(),
-            );
+            final classKey = _normalizeTaxClassKey(item["class"]?.toString());
             final parsedRate = _parseMoney(item["rate"]) ?? 0.0;
             if (parsedRate <= 0) continue;
 
@@ -463,8 +475,10 @@ class WooService {
         .split(' ')
         .where((token) => token.isNotEmpty)
         .toList();
-    final looksLikeSkuQuery = RegExp(r'^[a-z0-9\-_]+$', caseSensitive: false)
-        .hasMatch(trimmedQuery.replaceAll(' ', ''));
+    final looksLikeSkuQuery = RegExp(
+      r'^[a-z0-9\-_]+$',
+      caseSensitive: false,
+    ).hasMatch(trimmedQuery.replaceAll(' ', ''));
     final shortQuery = queryTokens.length <= 1 && normalizedQuery.length <= 2;
 
     final primaryResultFuture = fetchProductsWithMeta(
@@ -482,11 +496,13 @@ class WooService {
             categoryId: categoryId,
             sku: trimmedQuery.replaceAll(' ', ''),
           )
-        : Future.value(const PaginatedProductsResult(
-            items: [],
-            totalProducts: 0,
-            totalPages: 0,
-          ));
+        : Future.value(
+            const PaginatedProductsResult(
+              items: [],
+              totalProducts: 0,
+              totalPages: 0,
+            ),
+          );
     final initialResults = await Future.wait([
       primaryResultFuture,
       exactSkuResultFuture,
@@ -518,14 +534,16 @@ class WooService {
     final candidatePages = looksLikeSkuQuery
         ? 2
         : shortQuery
-            ? 1
-            : (queryTokens.length > 1 ? 2 : 3);
+        ? 1
+        : (queryTokens.length > 1 ? 2 : 3);
     final shouldFetchFallbacks =
         exactSkuResult.items.isEmpty && primaryResult.items.length < perPage;
     if (shouldFetchFallbacks) {
-      for (var candidatePage = 1;
-          candidatePage <= candidatePages;
-          candidatePage++) {
+      for (
+        var candidatePage = 1;
+        candidatePage <= candidatePages;
+        candidatePage++
+      ) {
         final fallbackResult = await fetchProductsWithMeta(
           perPage: perPage,
           page: candidatePage,
@@ -570,8 +588,9 @@ class WooService {
     });
 
     final totalProducts = scoredMatches.length;
-    final totalPages =
-        totalProducts == 0 ? 0 : (totalProducts / perPage).ceil();
+    final totalPages = totalProducts == 0
+        ? 0
+        : (totalProducts / perPage).ceil();
     final start = (page - 1) * perPage;
     if (start >= totalProducts) {
       const emptyResult = PaginatedProductsResult(
@@ -1049,10 +1068,7 @@ class WooService {
   Future<Map<String, dynamic>> fetchOrderById(int orderId) async {
     try {
       final response = await http
-          .get(
-            _buildUri("orders/$orderId", {}),
-            headers: _wcHeaders(),
-          )
+          .get(_buildUri("orders/$orderId", {}), headers: _wcHeaders())
           .timeout(const Duration(seconds: 20));
 
       if (response.statusCode != 200) {
@@ -1225,6 +1241,15 @@ class WooService {
           "product_id": item.id,
           "variation_id": item.variationId ?? 0,
           "quantity": item.quantity,
+          if (item.variationAttributes.isNotEmpty)
+            "meta_data": item.variationAttributes.entries
+                .map(
+                  (attribute) => {
+                    "key": attribute.key,
+                    "value": attribute.value,
+                  },
+                )
+                .toList(),
         };
       }).toList();
 
@@ -1273,7 +1298,7 @@ class WooService {
         orderStatus = "pending";
       } else if (paymentType == "phonepe_partial") {
         paymentMethod = "phonepe";
-        paymentTitle = "PhonePe 8% Advance + COD";
+        paymentTitle = "PhonePe 20% Advance + COD";
         setPaid = false;
         orderStatus = "pending";
       } else if (paymentType == "cashfree_full") {
@@ -1288,12 +1313,12 @@ class WooService {
         orderStatus = "pending";
       } else if (paymentType == "cashfree_partial_pending") {
         paymentMethod = "cashfree";
-        paymentTitle = "Cashfree 8% Advance + COD";
+        paymentTitle = "Cashfree 20% Advance + COD";
         setPaid = false;
         orderStatus = "pending";
       } else if (paymentType == "cashfree_partial") {
         paymentMethod = "cashfree";
-        paymentTitle = "Cashfree 8% Advance + COD";
+        paymentTitle = "Cashfree 20% Advance + COD";
         setPaid = false;
         orderStatus = "on-hold";
       } else if (paymentType == "razorpay_full") {
@@ -1308,12 +1333,12 @@ class WooService {
         orderStatus = "pending";
       } else if (paymentType == "razorpay_partial_pending") {
         paymentMethod = "razorpay";
-        paymentTitle = "Razorpay 8% Advance + COD";
+        paymentTitle = "Razorpay 20% Advance + COD";
         setPaid = false;
         orderStatus = "pending";
       } else if (paymentType == "razorpay_partial") {
         paymentMethod = "razorpay";
-        paymentTitle = "Razorpay 8% Advance + COD";
+        paymentTitle = "Razorpay 20% Advance + COD";
         setPaid = false;
         orderStatus = "on-hold";
       } else if (paymentType == "payu_web_full") {
@@ -1323,7 +1348,7 @@ class WooService {
         orderStatus = "pending";
       } else if (paymentType == "payu_web_partial") {
         paymentMethod = "payu_partial";
-        paymentTitle = "PayU 8% Advance + COD";
+        paymentTitle = "PayU 20% Advance + COD";
         setPaid = false;
         orderStatus = "pending";
       } else if (paymentType == "payu_sdk_full") {
@@ -1333,7 +1358,7 @@ class WooService {
         orderStatus = "processing";
       } else if (paymentType == "payu_sdk_partial") {
         paymentMethod = "payu_partial";
-        paymentTitle = "PayU 8% Advance + COD";
+        paymentTitle = "PayU 20% Advance + COD";
         setPaid = false;
         orderStatus = "on-hold";
       } else if (paymentType == "cod") {
@@ -1343,7 +1368,7 @@ class WooService {
         orderStatus = "pending";
       } else if (paymentType == "partial") {
         paymentMethod = "payu_partial";
-        paymentTitle = "8% Advance + COD";
+        paymentTitle = "20% Advance + COD";
         setPaid = false;
         orderStatus = "on-hold";
       } else {
@@ -1357,8 +1382,7 @@ class WooService {
         uri,
         headers: _wcHeaders(json: true),
         body: jsonEncode({
-          if (customerId != null)
-            "customer_id": customerId,
+          if (customerId != null) "customer_id": customerId,
           "created_via": "app",
           "payment_method": paymentMethod,
           "payment_method_title": paymentTitle,
@@ -1391,7 +1415,7 @@ class WooService {
           "line_items": lineItems,
           if (couponCode.trim().isNotEmpty)
             "coupon_lines": [
-              {"code": couponCode.trim()}
+              {"code": couponCode.trim()},
             ],
           if (walletUsedAmount > 0)
             "fee_lines": [
@@ -1426,10 +1450,10 @@ class WooService {
               "value": paymentType == "snapmint"
                   ? "snapmint"
                   : (isPhonePeFlow
-                      ? "phonepe"
-                      : (isCashfreeFlow
-                          ? "cashfree"
-                          : (isRazorpayFlow ? "razorpay" : "payu"))),
+                        ? "phonepe"
+                        : (isCashfreeFlow
+                              ? "cashfree"
+                              : (isRazorpayFlow ? "razorpay" : "payu"))),
             },
             {"key": "order_source", "value": "app"},
             if (installId.isNotEmpty)
@@ -1527,11 +1551,7 @@ class WooService {
     String device = "android",
   }) async {
     final uri = _buildSnapmintCheckoutUri();
-    final payload = {
-      "order_id": orderId,
-      "user_id": userId,
-      "device": device,
-    };
+    final payload = {"order_id": orderId, "user_id": userId, "device": device};
 
     for (int attempt = 0; attempt < 2; attempt++) {
       try {
@@ -1567,15 +1587,16 @@ class WooService {
         final status = (map["status"] ?? "").toString().trim().toLowerCase();
         final ok = (map["ok"] ?? false) == true;
         final success = (map["success"] ?? false) == true;
-        final checkoutUrl = (map["checkout_url"] ??
-                map["redirect_url"] ??
-                map["redirectUrl"] ??
-                map["url"] ??
-                map["link"] ??
-                map["checkoutLink"] ??
-                "")
-            .toString()
-            .trim();
+        final checkoutUrl =
+            (map["checkout_url"] ??
+                    map["redirect_url"] ??
+                    map["redirectUrl"] ??
+                    map["url"] ??
+                    map["link"] ??
+                    map["checkoutLink"] ??
+                    "")
+                .toString()
+                .trim();
 
         if (checkoutUrl.isNotEmpty &&
             (status == "success" ||
@@ -1586,13 +1607,14 @@ class WooService {
           return checkoutUrl;
         }
 
-        final message = (map["message"] ??
-                map["error"] ??
-                map["reason"] ??
-                map["detail"] ??
-                "")
-            .toString()
-            .trim();
+        final message =
+            (map["message"] ??
+                    map["error"] ??
+                    map["reason"] ??
+                    map["detail"] ??
+                    "")
+                .toString()
+                .trim();
         print(
           "[SNAPMINT][API] checkout url missing or rejected status=$status message=$message keys=${map.keys.toList()}",
         );
@@ -1673,6 +1695,49 @@ class WooService {
     return _checkWooCoupon(normalized, currentTotal);
   }
 
+  Future<Map<String, dynamic>?> ensureInterestCoupon({
+    required int productId,
+    required String productName,
+  }) async {
+    if (productId <= 0) return null;
+
+    final code = "YANA2P$productId";
+    final existing = await _checkWooCoupon(code, 1000);
+    if (existing != null) return existing;
+
+    try {
+      final response = await http
+          .post(
+            _buildUri("coupons", {}),
+            headers: _wcHeaders(json: true),
+            body: jsonEncode({
+              "code": code,
+              "discount_type": "percent",
+              "amount": "2",
+              "minimum_amount": "1000",
+              "individual_use": true,
+              "description":
+                  "Auto 2% interest coupon for app product: $productName",
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {"coupon": code, "min": "1000", "max": "9999999", "value": "2%"};
+      }
+
+      final rechecked = await _checkWooCoupon(code, 1000);
+      if (rechecked != null) return rechecked;
+      print(
+        "Interest coupon create failed ${response.statusCode}: ${response.body}",
+      );
+      return null;
+    } catch (e) {
+      print("Interest coupon create exception: $e");
+      return _checkWooCoupon(code, 1000);
+    }
+  }
+
   Future<Map<String, dynamic>?> fetchGatewayStatus() async {
     try {
       final uri = _buildWpV1Uri("gateway-status");
@@ -1712,9 +1777,9 @@ class WooService {
         if (decoded is! List || decoded.isEmpty) break;
 
         allCategories.addAll(
-          decoded
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item)),
+          decoded.whereType<Map>().map(
+            (item) => Map<String, dynamic>.from(item),
+          ),
         );
         page++;
       }
@@ -1773,9 +1838,7 @@ class WooService {
     }
   }
 
-  Future<bool> verifyCashfreeOrderStatus({
-    required String orderId,
-  }) async {
+  Future<bool> verifyCashfreeOrderStatus({required String orderId}) async {
     final normalizedOrderId = orderId.trim();
     if (normalizedOrderId.isEmpty) {
       print("[CASHFREE][VERIFY] empty order id");
@@ -1791,7 +1854,9 @@ class WooService {
     }
 
     try {
-      print("[CASHFREE][VERIFY] POST ${uri.toString()} order_id=$normalizedOrderId");
+      print(
+        "[CASHFREE][VERIFY] POST ${uri.toString()} order_id=$normalizedOrderId",
+      );
       final response = await http
           .post(
             uri,
@@ -1835,21 +1900,23 @@ class WooService {
   }) async {
     try {
       final uri = _buildUri("orders/$orderId", {});
-      final response = await http.put(
-        uri,
-        headers: _wcHeaders(json: true),
-        body: jsonEncode({
-          "set_paid": true,
-          "status": "processing",
-          "transaction_id": cashfreeOrderId.trim(),
-          "meta_data": [
-            {"key": "cashfree_order_id", "value": cashfreeOrderId.trim()},
-            {"key": "cashfree_payment_verified", "value": "1"},
-            {"key": "payment_type", "value": "cashfree_full"},
-            {"key": "online_gateway", "value": "cashfree"},
-          ],
-        }),
-      ).timeout(const Duration(seconds: 25));
+      final response = await http
+          .put(
+            uri,
+            headers: _wcHeaders(json: true),
+            body: jsonEncode({
+              "set_paid": true,
+              "status": "processing",
+              "transaction_id": cashfreeOrderId.trim(),
+              "meta_data": [
+                {"key": "cashfree_order_id", "value": cashfreeOrderId.trim()},
+                {"key": "cashfree_payment_verified", "value": "1"},
+                {"key": "payment_type", "value": "cashfree_full"},
+                {"key": "online_gateway", "value": "cashfree"},
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
 
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
@@ -1864,22 +1931,24 @@ class WooService {
   }) async {
     try {
       final uri = _buildUri("orders/$orderId", {});
-      final response = await http.put(
-        uri,
-        headers: _wcHeaders(json: true),
-        body: jsonEncode({
-          "set_paid": false,
-          "status": "on-hold",
-          "transaction_id": cashfreeOrderId.trim(),
-          "meta_data": [
-            {"key": "cashfree_order_id", "value": cashfreeOrderId.trim()},
-            {"key": "cashfree_payment_verified", "value": "1"},
-            {"key": "payment_type", "value": "cashfree_partial"},
-            {"key": "online_gateway", "value": "cashfree"},
-            {"key": "partial_payment_received", "value": "1"},
-          ],
-        }),
-      ).timeout(const Duration(seconds: 25));
+      final response = await http
+          .put(
+            uri,
+            headers: _wcHeaders(json: true),
+            body: jsonEncode({
+              "set_paid": false,
+              "status": "on-hold",
+              "transaction_id": cashfreeOrderId.trim(),
+              "meta_data": [
+                {"key": "cashfree_order_id", "value": cashfreeOrderId.trim()},
+                {"key": "cashfree_payment_verified", "value": "1"},
+                {"key": "payment_type", "value": "cashfree_partial"},
+                {"key": "online_gateway", "value": "cashfree"},
+                {"key": "partial_payment_received", "value": "1"},
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
 
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
@@ -1986,6 +2055,56 @@ class WooService {
     }
   }
 
+  Future<Map<String, String>?> recoverRazorpayPaymentForOrder({
+    required String razorpayOrderId,
+    String merchantOrderId = "",
+  }) async {
+    final uri = _buildRazorpayVerifyUri();
+    if (uri == null || razorpayOrderId.trim().isEmpty) return null;
+
+    try {
+      final response = await http
+          .post(
+            uri,
+            headers: _razorpayHeaders(),
+            body: jsonEncode({
+              "razorpay_order_id": razorpayOrderId.trim(),
+              "merchant_order_id": merchantOrderId.trim(),
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      print(
+        "[RAZORPAY][RECOVER] HTTP ${response.statusCode} body=${response.body.substring(0, response.body.length > 300 ? 300 : response.body.length)}",
+      );
+
+      final data = _decodeJsonObject(response.body);
+      if (response.statusCode < 200 ||
+          response.statusCode >= 300 ||
+          data == null) {
+        return null;
+      }
+
+      final verified = data["verified"] == true || data["success"] == true;
+      final paymentId = (data["razorpay_payment_id"] ?? "").toString().trim();
+      final orderId = (data["razorpay_order_id"] ?? razorpayOrderId)
+          .toString()
+          .trim();
+      if (!verified || paymentId.isEmpty || orderId.isEmpty) return null;
+
+      return {
+        "razorpay_payment_id": paymentId,
+        "razorpay_order_id": orderId,
+        "razorpay_signature": (data["razorpay_signature"] ?? "")
+            .toString()
+            .trim(),
+      };
+    } catch (e) {
+      print("[RAZORPAY][RECOVER] Exception: $e");
+      return null;
+    }
+  }
+
   Future<bool> markRazorpayOrderPaid({
     required int orderId,
     required String razorpayPaymentId,
@@ -1993,23 +2112,28 @@ class WooService {
   }) async {
     try {
       final uri = _buildUri("orders/$orderId", {});
-      final response = await http.put(
-        uri,
-        headers: _wcHeaders(json: true),
-        body: jsonEncode({
-          "set_paid": true,
-          "status": "processing",
-          "transaction_id": razorpayPaymentId.trim(),
-          "meta_data": [
-            {"key": "razorpay_payment_id", "value": razorpayPaymentId.trim()},
-            if (razorpayOrderId.trim().isNotEmpty)
-              {"key": "razorpay_order_id", "value": razorpayOrderId.trim()},
-            {"key": "razorpay_payment_verified", "value": "1"},
-            {"key": "payment_type", "value": "razorpay_full"},
-            {"key": "online_gateway", "value": "razorpay"},
-          ],
-        }),
-      ).timeout(const Duration(seconds: 25));
+      final response = await http
+          .put(
+            uri,
+            headers: _wcHeaders(json: true),
+            body: jsonEncode({
+              "set_paid": true,
+              "status": "processing",
+              "transaction_id": razorpayPaymentId.trim(),
+              "meta_data": [
+                {
+                  "key": "razorpay_payment_id",
+                  "value": razorpayPaymentId.trim(),
+                },
+                if (razorpayOrderId.trim().isNotEmpty)
+                  {"key": "razorpay_order_id", "value": razorpayOrderId.trim()},
+                {"key": "razorpay_payment_verified", "value": "1"},
+                {"key": "payment_type", "value": "razorpay_full"},
+                {"key": "online_gateway", "value": "razorpay"},
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
 
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
@@ -2025,24 +2149,29 @@ class WooService {
   }) async {
     try {
       final uri = _buildUri("orders/$orderId", {});
-      final response = await http.put(
-        uri,
-        headers: _wcHeaders(json: true),
-        body: jsonEncode({
-          "set_paid": false,
-          "status": "on-hold",
-          "transaction_id": razorpayPaymentId.trim(),
-          "meta_data": [
-            {"key": "razorpay_payment_id", "value": razorpayPaymentId.trim()},
-            if (razorpayOrderId.trim().isNotEmpty)
-              {"key": "razorpay_order_id", "value": razorpayOrderId.trim()},
-            {"key": "razorpay_payment_verified", "value": "1"},
-            {"key": "payment_type", "value": "razorpay_partial"},
-            {"key": "online_gateway", "value": "razorpay"},
-            {"key": "partial_payment_received", "value": "1"},
-          ],
-        }),
-      ).timeout(const Duration(seconds: 25));
+      final response = await http
+          .put(
+            uri,
+            headers: _wcHeaders(json: true),
+            body: jsonEncode({
+              "set_paid": false,
+              "status": "on-hold",
+              "transaction_id": razorpayPaymentId.trim(),
+              "meta_data": [
+                {
+                  "key": "razorpay_payment_id",
+                  "value": razorpayPaymentId.trim(),
+                },
+                if (razorpayOrderId.trim().isNotEmpty)
+                  {"key": "razorpay_order_id", "value": razorpayOrderId.trim()},
+                {"key": "razorpay_payment_verified", "value": "1"},
+                {"key": "payment_type", "value": "razorpay_partial"},
+                {"key": "online_gateway", "value": "razorpay"},
+                {"key": "partial_payment_received", "value": "1"},
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
 
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
@@ -2058,35 +2187,28 @@ class WooService {
     final normalizedTransactionId = transactionId.trim();
     try {
       final uri = _buildUri("orders/$orderId", {});
-      final response = await http.put(
-        uri,
-        headers: _wcHeaders(json: true),
-        body: jsonEncode({
-          "set_paid": true,
-          "status": "processing",
-          if (normalizedTransactionId.isNotEmpty)
-            "transaction_id": normalizedTransactionId,
-          "meta_data": [
-            {
-              "key": "snapmint_payment_verified",
-              "value": "1",
-            },
-            {
-              "key": "payment_type",
-              "value": "snapmint",
-            },
-            {
-              "key": "online_gateway",
-              "value": "snapmint",
-            },
-            if (normalizedTransactionId.isNotEmpty)
-              {
-                "key": "snapmint_payment_id",
-                "value": normalizedTransactionId,
-              },
-          ],
-        }),
-      ).timeout(const Duration(seconds: 25));
+      final response = await http
+          .put(
+            uri,
+            headers: _wcHeaders(json: true),
+            body: jsonEncode({
+              "set_paid": true,
+              "status": "processing",
+              if (normalizedTransactionId.isNotEmpty)
+                "transaction_id": normalizedTransactionId,
+              "meta_data": [
+                {"key": "snapmint_payment_verified", "value": "1"},
+                {"key": "payment_type", "value": "snapmint"},
+                {"key": "online_gateway", "value": "snapmint"},
+                if (normalizedTransactionId.isNotEmpty)
+                  {
+                    "key": "snapmint_payment_id",
+                    "value": normalizedTransactionId,
+                  },
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
 
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
@@ -2099,10 +2221,10 @@ class WooService {
     required double orderAmount,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final installId = (prefs.getString("anonymous_install_id") ?? "").trim();
+      final installId = await _getOrCreateInstallId();
       final userIdRaw = (await AuthService().getUserId() ?? "").trim();
       final userId = int.tryParse(userIdRaw) ?? 0;
+      await _ensureSignupWalletBonus(userId: userId, installId: installId);
 
       final uri = _buildWpV1Uri("wallet/status");
       final response = await http
@@ -2112,6 +2234,9 @@ class WooService {
             body: jsonEncode({
               "user_id": userId > 0 ? userId : 0,
               "install_id": installId,
+              "platform": defaultTargetPlatform == TargetPlatform.android
+                  ? "android"
+                  : "ios",
               "order_amount": orderAmount.toStringAsFixed(2),
             }),
           )
@@ -2133,10 +2258,10 @@ class WooService {
     double orderAmount = 0.0,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final installId = (prefs.getString("anonymous_install_id") ?? "").trim();
+      final installId = await _getOrCreateInstallId();
       final userIdRaw = (await AuthService().getUserId() ?? "").trim();
       final userId = int.tryParse(userIdRaw) ?? 0;
+      await _ensureSignupWalletBonus(userId: userId, installId: installId);
 
       final uri = _buildWpV1Uri("wallet/overview");
       final response = await http
@@ -2146,6 +2271,9 @@ class WooService {
             body: jsonEncode({
               "user_id": userId > 0 ? userId : 0,
               "install_id": installId,
+              "platform": defaultTargetPlatform == TargetPlatform.android
+                  ? "android"
+                  : "ios",
               "order_amount": orderAmount.toStringAsFixed(2),
             }),
           )
@@ -2283,8 +2411,10 @@ class WooService {
       final minRaw = (coupon["minimum_amount"] ?? "0").toString();
       final maxRaw = (coupon["maximum_amount"] ?? "").toString();
       final dateExpiresRaw = (coupon["date_expires"] ?? "").toString();
-      final usageLimit = int.tryParse((coupon["usage_limit"] ?? "0").toString()) ?? 0;
-      final usageCount = int.tryParse((coupon["usage_count"] ?? "0").toString()) ?? 0;
+      final usageLimit =
+          int.tryParse((coupon["usage_limit"] ?? "0").toString()) ?? 0;
+      final usageCount =
+          int.tryParse((coupon["usage_count"] ?? "0").toString()) ?? 0;
 
       if (usageLimit > 0 && usageCount >= usageLimit) {
         return null;
@@ -2302,7 +2432,8 @@ class WooService {
 
       String value;
       if (discountType == "percent") {
-        value = "${amount.toStringAsFixed(amount.truncateToDouble() == amount ? 0 : 2)}%";
+        value =
+            "${amount.toStringAsFixed(amount.truncateToDouble() == amount ? 0 : 2)}%";
       } else {
         value = amount.toStringAsFixed(2);
       }
@@ -2310,8 +2441,8 @@ class WooService {
       final maxParsed = double.tryParse(maxRaw);
       final normalizedMax =
           (maxRaw.trim().isEmpty || (maxParsed != null && maxParsed <= 0))
-              ? "9999999"
-              : maxRaw;
+          ? "9999999"
+          : maxRaw;
 
       return {
         "coupon": code,
@@ -2501,9 +2632,11 @@ class WooService {
     final description = _normalizeSearchText(
       product["short_description"]?.toString() ?? "",
     );
-    final combined = [name, sku, description]
-        .where((value) => value.isNotEmpty)
-        .join(' ');
+    final combined = [
+      name,
+      sku,
+      description,
+    ].where((value) => value.isNotEmpty).join(' ');
 
     var score = 0;
 
@@ -2574,6 +2707,34 @@ class WooService {
       length,
       (_) => chars[random.nextInt(chars.length)],
     ).join();
+  }
+
+  Future<void> _ensureSignupWalletBonus({
+    required int userId,
+    required String installId,
+  }) async {
+    if (userId <= 0) return;
+
+    try {
+      final token = await AuthService().getToken();
+      if (token == null || token.isEmpty) return;
+
+      await http
+          .post(
+            _buildWpV1Uri("wallet/ensure-signup-bonus"),
+            headers: {
+              ..._wcHeaders(json: true),
+              "Authorization": "Bearer $token",
+            },
+            body: jsonEncode({
+              "user_id": userId,
+              "install_id": installId,
+            }),
+          )
+          .timeout(const Duration(seconds: 12));
+    } catch (_) {
+      // Wallet status still works if this server-side route is not enabled yet.
+    }
   }
 }
 

@@ -64,9 +64,9 @@ class DataManager {
         order: "desc",
       );
 
-      final procResponse = await http.get(
-        Uri.parse("https://yanaworldwide.store/Yanaapp/proc.txt"),
-      );
+      final procResponse = await http
+          .get(Uri.parse("https://yanaworldwide.store/Yanaapp/proc.txt"))
+          .timeout(const Duration(seconds: 6));
 
       String serverProcVersion =
           procResponse.statusCode == 200 ? procResponse.body.trim() : "1";

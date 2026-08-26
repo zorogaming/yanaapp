@@ -26,8 +26,30 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>tez</string>
+			<string>gpay</string>
+			<string>phonepe</string>
+			<string>paytmmp</string>
+			<string>upi</string>
+			<string>credpay</string>
+		</array>
 		<key>NSFaceIDUsageDescription</key>
 		<string>Use Face ID to securely login to your account.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Allow camera access to take photos for your profile, orders, or customer support requests.</string>
+		<key>NSLocalNetworkUsageDescription</key>
+		<string>Allow local network access for Flutter debugging.</string>
+		<key>NSBonjourServices</key>
+		<array>
+			<string>_dartVmService._tcp</string>
+			<string>_dartobservatory._tcp</string>
+		</array>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>remote-notification</string>
+		</array>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

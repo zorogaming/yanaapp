@@ -71,6 +71,8 @@ class NotificationInboxService {
   static const int _maxItems = 200;
   final ValueNotifier<int> unreadCountNotifier = ValueNotifier<int>(0);
   final ValueNotifier<int> inboxChangeNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<NotificationInboxItem?> latestPopupNotifier =
+      ValueNotifier<NotificationInboxItem?>(null);
 
   Future<void> captureFromRemoteMessage(
     RemoteMessage message, {
@@ -185,6 +187,7 @@ class NotificationInboxService {
     final prefs = await SharedPreferences.getInstance();
     final encoded = items.map((e) => jsonEncode(e.toJson())).toList(growable: false);
     await prefs.setStringList(_inboxKey, encoded);
+    latestPopupNotifier.value = item;
     _notifyInboxChanged();
   }
 

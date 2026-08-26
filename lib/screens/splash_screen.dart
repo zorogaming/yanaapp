@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
+import '../services/app_sound_service.dart';
 import 'login_screen.dart';
 import 'main_navigation.dart';
 
@@ -32,7 +31,6 @@ class _SplashScreenState extends State<SplashScreen>
   bool _didNavigate = false;
   late final DateTime _startedAt;
   String _appVersionLabel = "";
-  AudioPlayer? _splashAudioPlayer;
 
   final Color ktmOrange = const Color(0xFFFF6600);
   final Color ktmBlack = const Color(0xFF000000);
@@ -47,13 +45,15 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(milliseconds: 1500),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 0.5,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
 
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
 
     _glowAnimation = Tween<double>(begin: 0.25, end: 1.0).animate(
       CurvedAnimation(
@@ -84,7 +84,7 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _controller.forward();
-    _playSplashSound();
+    unawaited(_playSplashSound());
     _startupFallbackTimer = Timer(
       _startupFallbackDelay,
       _navigateToFallbackDestination,
@@ -107,18 +107,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _playSplashSound() async {
-    try {
-      final player = AudioPlayer();
-      _splashAudioPlayer = player;
-      await player.setReleaseMode(ReleaseMode.stop);
-      await player.setVolume(1.0);
-      final bytes = await rootBundle.load('assets/Yana.mp3');
-      await player.play(
-        BytesSource(bytes.buffer.asUint8List()),
-      );
-    } catch (_) {
-      // Splash audio should never block app startup.
-    }
+    await AppSoundService.instance.playSplashSound();
   }
 
   Future<void> checkLogin() async {
@@ -189,16 +178,16 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     if (!mounted) return;
-    await Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    await Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
   void dispose() {
     _startupFallbackTimer?.cancel();
     _controller.dispose();
-    _splashAudioPlayer?.dispose();
+    unawaited(AppSoundService.instance.stopSplashSound());
     super.dispose();
   }
 
@@ -278,8 +267,12 @@ class _SplashScreenState extends State<SplashScreen>
                                   shape: BoxShape.circle,
                                   gradient: RadialGradient(
                                     colors: [
-                                      ktmOrange.withOpacity(0.34 * _glowAnimation.value),
-                                      ktmOrange.withOpacity(0.08 * _glowAnimation.value),
+                                      ktmOrange.withOpacity(
+                                        0.34 * _glowAnimation.value,
+                                      ),
+                                      ktmOrange.withOpacity(
+                                        0.08 * _glowAnimation.value,
+                                      ),
                                       Colors.transparent,
                                     ],
                                   ),

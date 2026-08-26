@@ -10,6 +10,8 @@ class Product {
   final String shortDescription;
   final String type;
   final String sku;
+  final String slug;
+  final String permalink;
   final String stockStatus;
   final bool isInStock;
 
@@ -25,6 +27,8 @@ class Product {
     required this.shortDescription,
     required this.type,
     required this.sku,
+    required this.slug,
+    required this.permalink,
     required this.stockStatus,
     required this.isInStock,
   });
@@ -44,15 +48,14 @@ class Product {
     final isInStock = inStockRaw is bool
         ? inStockRaw
         : stockStatus.isEmpty
-            ? true
-            : stockStatus == "instock" || stockStatus == "onbackorder";
+        ? true
+        : stockStatus == "instock" || stockStatus == "onbackorder";
 
-    final effectivePrice =
-        json['price']?.toString().trim().isNotEmpty == true
-            ? json['price']?.toString() ?? "0"
-            : json['sale_price']?.toString() ??
-                json['regular_price']?.toString() ??
-                "0";
+    final effectivePrice = json['price']?.toString().trim().isNotEmpty == true
+        ? json['price']?.toString() ?? "0"
+        : json['sale_price']?.toString() ??
+              json['regular_price']?.toString() ??
+              "0";
 
     return Product(
       id: json['id'] ?? 0,
@@ -66,6 +69,8 @@ class Product {
       shortDescription: json['short_description']?.toString() ?? "",
       type: json['type']?.toString() ?? "simple",
       sku: json['sku']?.toString() ?? "",
+      slug: json['slug']?.toString() ?? "",
+      permalink: json['permalink']?.toString() ?? "",
       stockStatus: stockStatus,
       isInStock: isInStock,
     );
@@ -82,11 +87,12 @@ class Product {
       'short_description': shortDescription,
       'type': type,
       'sku': sku,
+      'slug': slug,
+      'permalink': permalink,
       'stock_status': stockStatus,
       'in_stock': isInStock,
       'images': [
-        for (final imageUrl in galleryImages)
-          {'src': imageUrl},
+        for (final imageUrl in galleryImages) {'src': imageUrl},
       ],
     };
   }

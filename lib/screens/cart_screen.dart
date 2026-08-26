@@ -19,9 +19,19 @@ class CartScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: palette.background,
       appBar: AppBar(
-        title: const Text("My Bag"),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        title: Text(
+          "My Cart",
+          style: TextStyle(
+            color: palette.textPrimary,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        backgroundColor: palette.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0.5,
+        shadowColor: palette.border,
+        iconTheme: IconThemeData(color: palette.textPrimary),
         actions: [
           Consumer<WishlistProvider>(
             builder: (context, wishlist, child) {

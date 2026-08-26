@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/data_manager.dart';
+import '../services/share_service.dart';
 import '../models/product_model.dart';
 import 'product_detail_screen.dart';
 import '../widgets/app_cached_image.dart';
@@ -42,12 +43,25 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
       appBar: AppBar(
         title: Text(
           widget.categoryName,
-          style:
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         backgroundColor: ktmBlack,
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: "Share category",
+            onPressed: () => ShareService.instance.shareCategory(
+              context: context,
+              categoryId: widget.categoryId,
+              categoryName: widget.categoryName,
+            ),
+            icon: const Icon(Icons.share_rounded, color: Colors.white),
+          ),
+        ],
       ),
       body: FutureBuilder(
         future: products,
@@ -55,23 +69,30 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const ProductsGridSkeleton(
               padding: EdgeInsets.all(10),
-              childAspectRatio: 0.6,
+              childAspectRatio: 0.54,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
             );
           } else if (snapshot.hasError) {
             return Center(
-                child: Text("Error: ${snapshot.error}",
-                    style: const TextStyle(color: Colors.redAccent)));
+              child: Text(
+                "Error: ${snapshot.error}",
+                style: const TextStyle(color: Colors.redAccent),
+              ),
+            );
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(
-                child: Text("No products found",
-                    style: TextStyle(color: Colors.grey)));
+              child: Text(
+                "No products found",
+                style: TextStyle(color: Colors.grey),
+              ),
+            );
           }
 
           List data = snapshot.data!;
-          List<Product> productList =
-              data.map((e) => Product.fromJson(e)).toList();
+          List<Product> productList = data
+              .map((e) => Product.fromJson(e))
+              .toList();
 
           return GridView.builder(
             padding: EdgeInsets.fromLTRB(10, 10, 10, 10 + safeBottom + 8),
@@ -80,7 +101,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
               crossAxisCount: 2,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
-              childAspectRatio: 0.6, // 🔥 Height ratio control
+              childAspectRatio: 0.54,
             ),
             itemBuilder: (context, index) {
               Product product = productList[index];
@@ -103,7 +124,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                         color: Colors.black.withOpacity(0.05),
                         blurRadius: 5,
                         offset: const Offset(0, 2),
-                      )
+                      ),
                     ],
                   ),
                   child: Column(
@@ -114,7 +135,8 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                         aspectRatio: 1.1,
                         child: ClipRRect(
                           borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(15)),
+                            top: Radius.circular(15),
+                          ),
                           child: AppCachedImage(
                             url: product.image,
                             fit: BoxFit.cover,
@@ -139,6 +161,26 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                 ),
                               ),
                               const SizedBox(height: 5),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: IconButton(
+                                  tooltip: "Share product",
+                                  visualDensity: VisualDensity.compact,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 32,
+                                    minHeight: 32,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () => ShareService.instance
+                                      .shareProduct(context, product),
+                                  icon: Icon(
+                                    Icons.share_rounded,
+                                    color: ktmOrange,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
                               Wrap(
                                 spacing: 6,
                                 runSpacing: 4,
@@ -154,22 +196,45 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                   if (product.hasDiscount)
                                     Text(
                                       "\u20B9${product.regularPrice}",
-                                      style: const TextStyle(fontSize: 11, color: Colors.grey, decoration: TextDecoration.lineThrough),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        decoration: TextDecoration.lineThrough,
+                                      ),
                                     ),
                                   if (product.discountPercent > 0)
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                      decoration: BoxDecoration(color: ktmOrange, borderRadius: BorderRadius.circular(999)),
-                                      child: Text("${product.discountPercent}% OFF", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: ktmOrange,
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        "${product.discountPercent}% OFF",
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
                                     ),
                                 ],
                               ),
                               const Text(
                                 "or ₹867/month with Snapmint",
-                                style:
-                                    TextStyle(fontSize: 11, color: Colors.grey),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey,
+                                ),
                               ),
-                              const Spacer(),
+                              const SizedBox(height: 6),
                               // KTM Style Add to Cart Button
                               SizedBox(
                                 width: double.infinity,
@@ -180,7 +245,8 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                            "${product.name} added to cart"),
+                                          "${product.name} added to cart",
+                                        ),
                                         backgroundColor: ktmOrange,
                                       ),
                                     );
@@ -190,18 +256,25 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                     foregroundColor: Colors.white,
                                     // 🛑 FIX: Padding kam ki tak text na kate
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 5),
+                                      horizontal: 5,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     elevation: 0,
                                   ),
-                                  child: const Text(
-                                    "ADD TO BAG",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 8, // Text size wahi rakha
-                                        fontWeight: FontWeight.bold),
+                                  child: const FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      "ADD TO BAG",
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),

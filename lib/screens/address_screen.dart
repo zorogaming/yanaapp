@@ -18,6 +18,7 @@ class _AddressScreenState extends State<AddressScreen> {
   final state = TextEditingController();
   final postcode = TextEditingController();
   bool _isLoading = true;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -42,6 +43,7 @@ class _AddressScreenState extends State<AddressScreen> {
   }
 
   Future<void> saveAddress() async {
+    setState(() => _isSaving = true);
     await _accountService.updateAddress({
       "billing": {
         "first_name": firstName.text,
@@ -54,8 +56,57 @@ class _AddressScreenState extends State<AddressScreen> {
       }
     });
 
+    if (!mounted) return;
+    setState(() => _isSaving = false);
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text("Address Updated")));
+  }
+
+  Future<void> removeAddress() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Remove Address"),
+        content: const Text("Do you want to remove your saved address?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Remove"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isSaving = true);
+    await _accountService.updateAddress({
+      "billing": {
+        "first_name": "",
+        "last_name": "",
+        "address_1": "",
+        "city": "",
+        "state": "",
+        "postcode": "",
+        "country": "IN",
+      },
+    });
+    if (!mounted) return;
+    setState(() {
+      firstName.clear();
+      lastName.clear();
+      address1.clear();
+      city.clear();
+      state.clear();
+      postcode.clear();
+      _isSaving = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Address Removed")),
+    );
   }
 
   @override
@@ -94,8 +145,14 @@ class _AddressScreenState extends State<AddressScreen> {
                   ),
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: saveAddress,
+                    onPressed: _isSaving ? null : saveAddress,
                     child: const Text("Save"),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _isSaving ? null : removeAddress,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text("Remove Address"),
                   ),
                 ],
               ),
