@@ -373,6 +373,7 @@ class _HomeScreenState extends State<HomeScreen>
       "seen_home_popup_campaign_ids";
   static String _lastHandledPopupSignature = "";
   static bool _hasCheckedHomePopupThisSession = false;
+  static const bool _homeBannerVideosEnabled = false;
   static const int _homeBannerCacheWidth = 1280;
   static const int _homeProductImageCacheWidth = 720;
   static const int _homeCategoryImageCacheWidth = 240;
@@ -2247,12 +2248,22 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _replaceVideoBanners(List<HomeBannerMedia> videoItems) {
+    if (!_homeBannerVideosEnabled) {
+      _bannerItems.removeWhere((item) => item.isVideo);
+      if (_currentBannerIndex >= _bannerItems.length) {
+        _currentBannerIndex = 0;
+      }
+      return;
+    }
+
     _bannerItems.removeWhere((item) => item.isVideo);
     _bannerItems.addAll(videoItems);
   }
 
   void _replaceImageBanners(List<HomeBannerMedia> imageItems) {
-    _bannerItems.removeWhere((item) => !item.isVideo);
+    _bannerItems.removeWhere(
+      (item) => !item.isVideo || !_homeBannerVideosEnabled,
+    );
     _bannerItems.insertAll(0, imageItems);
     if (_currentBannerIndex >= _bannerItems.length) {
       _currentBannerIndex = 0;
