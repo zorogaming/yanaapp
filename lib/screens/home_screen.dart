@@ -10,8 +10,6 @@ import 'package:marquee/marquee.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../services/woo_service.dart';
 import '../services/admin_service.dart';
@@ -97,7 +95,7 @@ class _HomeTopNavItem {
   final IconData icon;
 }
 
-class HomeBannerMediaCard extends StatefulWidget {
+class HomeBannerMediaCard extends StatelessWidget {
   const HomeBannerMediaCard({
     super.key,
     required this.item,
@@ -109,191 +107,18 @@ class HomeBannerMediaCard extends StatefulWidget {
   final VoidCallback? onVideoStarted;
   final VoidCallback? onVideoEnded;
 
-  @override
-  State<HomeBannerMediaCard> createState() => _HomeBannerMediaCardState();
-}
+  Future<void> _openVideo() async {
+    final uri = Uri.tryParse(item.sourceUrl);
+    if (uri == null || !uri.hasScheme) return;
 
-class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
-  WebViewController? _controller;
-  bool _videoStarted = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.item.isVideo) {
-      _controller = _buildYoutubeController(widget.item.youtubeId!);
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant HomeBannerMediaCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.item.youtubeId != widget.item.youtubeId) {
-      _videoStarted = false;
-      if (widget.item.isVideo) {
-        _controller = _buildYoutubeController(widget.item.youtubeId!);
-      } else {
-        _controller = null;
-      }
-    }
-  }
-
-  WebViewController _buildYoutubeController(String youtubeId) {
-    final safeId = youtubeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
-    late final PlatformWebViewControllerCreationParams params;
-    final isWebKit = WebViewPlatform.instance is WebKitWebViewPlatform;
-    if (isWebKit) {
-      params = WebKitWebViewControllerCreationParams(
-        allowsInlineMediaPlayback: true,
-        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
-      );
-    } else {
-      params = const PlatformWebViewControllerCreationParams();
-    }
-
-    final embedUrl = Uri.https(
-      'www.youtube.com',
-      '/embed/$safeId',
-      {
-        'autoplay': '1',
-        'mute': '1',
-        'playsinline': '1',
-        'controls': '1',
-        'rel': '0',
-        'modestbranding': '1',
-      },
-    );
-
-    final controller = WebViewController.fromPlatformCreationParams(params)
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..addJavaScriptChannel(
-        'YanaVideoState',
-        onMessageReceived: (message) {
-          final value = message.message.trim().toLowerCase();
-          if (value == 'play' && !_videoStarted) {
-            _videoStarted = true;
-            widget.onVideoStarted?.call();
-          } else if (value == 'ended') {
-            widget.onVideoEnded?.call();
-          }
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) async {
-            await _attachVideoHooks();
-          },
-        ),
-      );
-
-    if (isWebKit) {
-      controller.setUserAgent(
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
-        'Mobile/15E148 Safari/604.1',
-      );
-    }
-
-    controller.loadRequest(embedUrl);
-    return controller;
-  }
-
-  Future<void> _attachVideoHooks() async {
-    final controller = _controller;
-    if (controller == null) return;
-
-    const script = r'''
-(() => {
-  if (window.__yanaVideoHooksAttached) {
-    return;
-  }
-  window.__yanaVideoHooksAttached = true;
-
-  function sendState(value) {
-    if (window.YanaVideoState && typeof window.YanaVideoState.postMessage === 'function') {
-      window.YanaVideoState.postMessage(value);
-    }
-  }
-
-  function makeVideoBanner(video) {
-    if (!video) {
-      return false;
-    }
-    try {
-      document.documentElement.style.background = '#000';
-      document.body.style.background = '#000';
-      document.body.style.margin = '0';
-      document.body.style.padding = '0';
-      document.body.style.overflow = 'hidden';
-
-      const all = Array.from(document.body.querySelectorAll('*'));
-      for (const node of all) {
-        if (node !== video && !node.contains(video)) {
-          node.style.display = 'none';
-        }
-      }
-
-      let parent = video.parentElement;
-      while (parent) {
-        parent.style.display = 'block';
-        parent.style.position = 'fixed';
-        parent.style.inset = '0';
-        parent.style.width = '100vw';
-        parent.style.height = '100vh';
-        parent.style.margin = '0';
-        parent.style.padding = '0';
-        parent.style.background = '#000';
-        parent.style.zIndex = '2147483646';
-        parent = parent.parentElement;
-      }
-
-      video.style.position = 'fixed';
-      video.style.inset = '0';
-      video.style.width = '100vw';
-      video.style.height = '100vh';
-      video.style.objectFit = 'cover';
-      video.style.background = '#000';
-      video.style.zIndex = '2147483647';
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  function bindVideo() {
-    const video = document.querySelector('video');
-    if (!video) {
-      window.setTimeout(bindVideo, 700);
-      return;
-    }
-
-    makeVideoBanner(video);
-    sendState('play');
-
-    if (!video.__yanaEventsBound) {
-      video.__yanaEventsBound = true;
-      video.addEventListener('play', () => sendState('play'));
-      video.addEventListener('ended', () => sendState('ended'));
-    }
-  }
-
-  bindVideo();
-})();
-''';
-
-    try {
-      await controller.runJavaScript(script);
-    } catch (_) {
-      // Ignore JS injection failures; video can still play without auto-advance hooks.
-    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.item.isVideo) {
+    if (!item.isVideo) {
       return AppCachedImage(
-        url: widget.item.sourceUrl,
+        url: item.sourceUrl,
         width: double.infinity,
         fit: BoxFit.cover,
         memCacheWidth: _HomeScreenState._homeBannerCacheWidth,
@@ -301,15 +126,69 @@ class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
         filterQuality: FilterQuality.low,
       );
     }
-    if (_controller != null) {
-      return Stack(
-        children: [
-          Positioned.fill(child: WebViewWidget(controller: _controller!)),
-        ],
-      );
-    }
 
-    return Container(color: Colors.black);
+    final safeId = item.youtubeId!.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
+    final thumbnailUrl =
+        safeId.isEmpty ? '' : 'https://i.ytimg.com/vi/$safeId/hqdefault.jpg';
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _openVideo,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (thumbnailUrl.isNotEmpty)
+            AppCachedImage(
+              url: thumbnailUrl,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              memCacheWidth: _HomeScreenState._homeBannerCacheWidth,
+              maxWidthDiskCache: _HomeScreenState._homeBannerCacheWidth,
+              filterQuality: FilterQuality.low,
+            )
+          else
+            Container(color: Colors.black),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.08),
+                  Colors.black.withOpacity(0.18),
+                ],
+              ),
+            ),
+          ),
+          Center(
+            child: Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.62),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.9),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.35),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 40,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
