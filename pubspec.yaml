@@ -41,6 +41,7 @@ dependencies:
   jwt_decoder: any
   carousel_slider: any
   marquee: any
+  mobile_scanner: any
   cached_network_image: any
   url_launcher: any
   package_info_plus: ^8.3.0

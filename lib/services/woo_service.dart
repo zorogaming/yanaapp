@@ -1212,6 +1212,7 @@ class WooService {
     required double totalAmount,
     String couponCode = "",
     double walletUsedAmount = 0.0,
+    double snapmintProcessingCharge = 0.0,
     double cashbackThreshold = 0.0,
     double cashbackRewardAmount = 0.0,
     double cashbackEligibleAmount = 0.0,
@@ -1252,6 +1253,7 @@ class WooService {
                 .toList(),
         };
       }).toList();
+      final List<Map<String, dynamic>> feeLines = [];
 
       // NEW LOGIC FOR PAYMENT TYPES
       String paymentMethod;
@@ -1378,6 +1380,20 @@ class WooService {
         orderStatus = "processing";
       }
 
+      if (paymentType == "snapmint" && snapmintProcessingCharge > 0) {
+        feeLines.add({
+          "name": "Snapmint Processing Charge (4%)",
+          "total": snapmintProcessingCharge.toStringAsFixed(2),
+        });
+      }
+
+      if (walletUsedAmount > 0) {
+        feeLines.add({
+          "name": "App Wallet Discount",
+          "total": (-walletUsedAmount).toStringAsFixed(2),
+        });
+      }
+
       final response = await http.post(
         uri,
         headers: _wcHeaders(json: true),
@@ -1417,13 +1433,7 @@ class WooService {
             "coupon_lines": [
               {"code": couponCode.trim()},
             ],
-          if (walletUsedAmount > 0)
-            "fee_lines": [
-              {
-                "name": "App Wallet Discount",
-                "total": (-walletUsedAmount).toStringAsFixed(2),
-              },
-            ],
+          if (feeLines.isNotEmpty) "fee_lines": feeLines,
           "shipping_lines": [
             {
               "method_id": shippingMethodId,
@@ -1462,6 +1472,11 @@ class WooService {
               {
                 "key": "wallet_used_amount",
                 "value": walletUsedAmount.toStringAsFixed(2),
+              },
+            if (paymentType == "snapmint" && snapmintProcessingCharge > 0)
+              {
+                "key": "snapmint_processing_charge",
+                "value": snapmintProcessingCharge.toStringAsFixed(2),
               },
             if (cashbackThreshold > 0 && cashbackRewardAmount > 0)
               {
@@ -2102,6 +2117,35 @@ class WooService {
     } catch (e) {
       print("[RAZORPAY][RECOVER] Exception: $e");
       return null;
+    }
+  }
+
+  Future<bool> cancelUnpaidOrder({
+    required int orderId,
+    required String reason,
+    String paymentMethod = "",
+  }) async {
+    try {
+      final uri = _buildUri("orders/$orderId", {});
+      final response = await http.put(
+        uri,
+        headers: _wcHeaders(json: true),
+        body: jsonEncode({
+          "set_paid": false,
+          "status": "cancelled",
+          "meta_data": [
+            {"key": "app_payment_abandoned", "value": "1"},
+            {"key": "app_payment_cancel_reason", "value": reason.trim()},
+            if (paymentMethod.trim().isNotEmpty)
+              {"key": "online_gateway", "value": paymentMethod.trim()},
+          ],
+        }),
+      ).timeout(const Duration(seconds: 25));
+
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      print("CancelUnpaidOrder Exception: $e");
+      return false;
     }
   }
 

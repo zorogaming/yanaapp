@@ -45,6 +45,7 @@ class RazorpayService {
     required String email,
     required String phone,
     String description = "Yanaworldwide Order",
+    String offerId = "",
     Future<RazorpayPaymentResult?> Function(String razorpayOrderId)?
     recoverPayment,
   }) async {
@@ -107,6 +108,9 @@ class RazorpayService {
       "send_sms_hash": true,
       "theme": {"color": "#1E3A8A"},
     };
+    if (offerId.trim().isNotEmpty) {
+      options["offer_id"] = offerId.trim();
+    }
 
     try {
       _razorpay.open(options);
