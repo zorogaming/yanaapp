@@ -10,6 +10,8 @@ import 'package:marquee/marquee.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../services/woo_service.dart';
 import '../services/admin_service.dart';
@@ -53,15 +55,15 @@ const Color scaffoldBg = Color(0xFF0D0D0D);
 
 class HomeBannerMedia {
   const HomeBannerMedia.image(this.url)
-      : type = _HomeBannerMediaType.image,
-        youtubeId = null,
-        sourceUrl = url;
+    : type = _HomeBannerMediaType.image,
+      youtubeId = null,
+      sourceUrl = url;
 
   const HomeBannerMedia.video({
     required this.sourceUrl,
     required this.youtubeId,
-  })  : type = _HomeBannerMediaType.video,
-        url = '';
+  }) : type = _HomeBannerMediaType.video,
+       url = '';
 
   final _HomeBannerMediaType type;
   final String url;
@@ -95,7 +97,7 @@ class _HomeTopNavItem {
   final IconData icon;
 }
 
-class HomeBannerMediaCard extends StatelessWidget {
+class HomeBannerMediaCard extends StatefulWidget {
   const HomeBannerMediaCard({
     super.key,
     required this.item,
@@ -107,18 +109,191 @@ class HomeBannerMediaCard extends StatelessWidget {
   final VoidCallback? onVideoStarted;
   final VoidCallback? onVideoEnded;
 
-  Future<void> _openVideo() async {
-    final uri = Uri.tryParse(item.sourceUrl);
-    if (uri == null || !uri.hasScheme) return;
+  @override
+  State<HomeBannerMediaCard> createState() => _HomeBannerMediaCardState();
+}
 
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
+  WebViewController? _controller;
+  String? _loadedYoutubeId;
+
+  @override
+  void initState() {
+    super.initState();
+    _configureVideoIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeBannerMediaCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.youtubeId != widget.item.youtubeId ||
+        oldWidget.item.type != widget.item.type) {
+      _configureVideoIfNeeded();
+    }
+  }
+
+  void _configureVideoIfNeeded() {
+    if (!widget.item.isVideo) {
+      _controller = null;
+      _loadedYoutubeId = null;
+      return;
+    }
+
+    final safeId = widget.item.youtubeId!.replaceAll(
+      RegExp(r'[^A-Za-z0-9_-]'),
+      '',
+    );
+    if (safeId.isEmpty || safeId == _loadedYoutubeId) return;
+
+    _loadedYoutubeId = safeId;
+    final params = WebViewPlatform.instance is WebKitWebViewPlatform
+        ? WebKitWebViewControllerCreationParams(
+            allowsInlineMediaPlayback: true,
+            mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+          )
+        : const PlatformWebViewControllerCreationParams();
+
+    final controller = WebViewController.fromPlatformCreationParams(params)
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..addJavaScriptChannel(
+        'YanaVideoState',
+        onMessageReceived: (message) {
+          final value = message.message.trim().toLowerCase();
+          if (value == 'play') {
+            widget.onVideoStarted?.call();
+          } else if (value == 'ended') {
+            widget.onVideoEnded?.call();
+          }
+        },
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) async {
+            widget.onVideoStarted?.call();
+          },
+        ),
+      );
+
+    _controller = controller;
+    controller.loadHtmlString(
+      _buildYoutubeEmbedHtml(safeId),
+      baseUrl: 'https://www.youtube.com',
+    );
+  }
+
+  String _buildYoutubeEmbedHtml(String youtubeId) {
+    return '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+    #player {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+    iframe {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      pointer-events: none;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="player"></div>
+  <script>
+    var tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+
+    var player;
+
+    function notify(value) {
+      try {
+        if (window.YanaVideoState && window.YanaVideoState.postMessage) {
+          window.YanaVideoState.postMessage(value);
+        }
+      } catch (error) {}
+    }
+
+    function forceMutedPlayback() {
+      try {
+        if (!player || !player.mute || !player.playVideo) {
+          return;
+        }
+        player.mute();
+        player.setVolume(0);
+        player.playVideo();
+      } catch (error) {}
+    }
+
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        videoId: '$youtubeId',
+        width: '100%',
+        height: '100%',
+        playerVars: {
+          autoplay: 1,
+          mute: 1,
+          controls: 0,
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          iv_load_policy: 3,
+          fs: 0,
+          disablekb: 1,
+          loop: 1,
+          playlist: '$youtubeId',
+          origin: 'https://www.youtube.com'
+        },
+        events: {
+          onReady: function(event) {
+            forceMutedPlayback();
+            notify('play');
+          },
+          onStateChange: function(event) {
+            if (event.data === YT.PlayerState.PLAYING) {
+              forceMutedPlayback();
+              notify('play');
+            } else if (event.data === YT.PlayerState.ENDED) {
+              notify('ended');
+              forceMutedPlayback();
+            }
+          },
+          onError: function() {
+            notify('error');
+          }
+        }
+      });
+      window.setInterval(forceMutedPlayback, 1800);
+    }
+  </script>
+</body>
+</html>
+''';
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!item.isVideo) {
+    if (!widget.item.isVideo) {
       return AppCachedImage(
-        url: item.sourceUrl,
+        url: widget.item.sourceUrl,
         width: double.infinity,
         fit: BoxFit.cover,
         memCacheWidth: _HomeScreenState._homeBannerCacheWidth,
@@ -127,76 +302,58 @@ class HomeBannerMediaCard extends StatelessWidget {
       );
     }
 
-    final safeId = item.youtubeId!.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
-    final thumbnailUrl =
-        safeId.isEmpty ? '' : 'https://i.ytimg.com/vi/$safeId/hqdefault.jpg';
+    final safeId = widget.item.youtubeId!.replaceAll(
+      RegExp(r'[^A-Za-z0-9_-]'),
+      '',
+    );
+    final thumbnailUrl = safeId.isEmpty
+        ? ''
+        : 'https://i.ytimg.com/vi/$safeId/hqdefault.jpg';
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _openVideo,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (thumbnailUrl.isNotEmpty)
-            AppCachedImage(
-              url: thumbnailUrl,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              memCacheWidth: _HomeScreenState._homeBannerCacheWidth,
-              maxWidthDiskCache: _HomeScreenState._homeBannerCacheWidth,
-              filterQuality: FilterQuality.low,
-            )
-          else
-            Container(color: Colors.black),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.08),
-                  Colors.black.withOpacity(0.18),
-                ],
-              ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (thumbnailUrl.isNotEmpty)
+          AppCachedImage(
+            url: thumbnailUrl,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            memCacheWidth: _HomeScreenState._homeBannerCacheWidth,
+            maxWidthDiskCache: _HomeScreenState._homeBannerCacheWidth,
+            filterQuality: FilterQuality.low,
+          )
+        else
+          Container(color: Colors.black),
+        if (_controller != null)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: WebViewWidget(controller: _controller!),
             ),
           ),
-          Center(
-            child: Container(
-              width: 58,
-              height: 58,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.62),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.9),
-                  width: 1,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.03),
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.08),
+                  ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.play_arrow_rounded,
-                color: Colors.white,
-                size: 40,
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({
-    super.key,
-    this.recentlyViewedRefresh,
-  });
+  const HomeScreen({super.key, this.recentlyViewedRefresh});
 
   final ValueListenable<int>? recentlyViewedRefresh;
 
@@ -323,15 +480,9 @@ class _HomeScreenState extends State<HomeScreen>
   };
 
   final List<HomeBannerMedia> _bannerItems = [
-    HomeBannerMedia.image(
-      _defaultBannerImageUrls[0],
-    ),
-    HomeBannerMedia.image(
-      _defaultBannerImageUrls[1],
-    ),
-    HomeBannerMedia.image(
-      _defaultBannerImageUrls[2],
-    ),
+    HomeBannerMedia.image(_defaultBannerImageUrls[0]),
+    HomeBannerMedia.image(_defaultBannerImageUrls[1]),
+    HomeBannerMedia.image(_defaultBannerImageUrls[2]),
   ];
 
   final WooService api = WooService();
@@ -536,7 +687,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _scheduleProductRailLoads() {
     Future<void>.delayed(const Duration(milliseconds: 650), () {
-      if (!mounted || _newArrivalsFuture != null || _bestSellersFuture != null) {
+      if (!mounted ||
+          _newArrivalsFuture != null ||
+          _bestSellersFuture != null) {
         return;
       }
       setState(() {
@@ -661,7 +814,9 @@ class _HomeScreenState extends State<HomeScreen>
       final shouldReloadAfterRetry =
           _serverRetryActive ||
           (!_hasInternet && products.isEmpty) ||
-          (currentSearch.trim().isEmpty && isInitialLoading && products.isEmpty);
+          (currentSearch.trim().isEmpty &&
+              isInitialLoading &&
+              products.isEmpty);
       _internetFailureCount = 0;
       if (!_internetStatusKnown || !_hasInternet || _serverRetryActive) {
         setState(() {
@@ -806,7 +961,10 @@ class _HomeScreenState extends State<HomeScreen>
           return FadeTransition(
             opacity: animation,
             child: ScaleTransition(
-              scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+              scale: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutBack,
+              ),
               child: Center(
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -864,7 +1022,10 @@ class _HomeScreenState extends State<HomeScreen>
                                 if (!mounted) return;
                                 Navigator.of(context).pop();
                               },
-                              icon: const Icon(Icons.close, color: Colors.white70),
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.white70,
+                              ),
                             ),
                           ],
                         ),
@@ -957,8 +1118,9 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted || _themeChooserShown) return;
     final prefs = await SharedPreferences.getInstance();
     final hasCompletedPrompt = prefs.getBool(_themePromptCompletedKey) ?? false;
-    final hasSavedTheme =
-        (prefs.getString('selected_app_theme') ?? '').trim().isNotEmpty;
+    final hasSavedTheme = (prefs.getString('selected_app_theme') ?? '')
+        .trim()
+        .isNotEmpty;
     if (hasCompletedPrompt || hasSavedTheme) return;
 
     _themeChooserShown = true;
@@ -978,7 +1140,8 @@ class _HomeScreenState extends State<HomeScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (sheetContext) {
-        final sheetPalette = Theme.of(sheetContext).extension<AppThemePalette>() ??
+        final sheetPalette =
+            Theme.of(sheetContext).extension<AppThemePalette>() ??
             AppThemes.midnightPalette;
         return SafeArea(
           child: Padding(
@@ -998,10 +1161,7 @@ class _HomeScreenState extends State<HomeScreen>
                 const SizedBox(height: 6),
                 Text(
                   "Pick the storefront style you want to start with.",
-                  style: TextStyle(
-                    color: sheetPalette.textMuted,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: sheetPalette.textMuted, fontSize: 13),
                 ),
                 const SizedBox(height: 16),
                 Flexible(
@@ -1025,7 +1185,10 @@ class _HomeScreenState extends State<HomeScreen>
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [optionPalette.heroStart, optionPalette.heroEnd],
+                              colors: [
+                                optionPalette.heroStart,
+                                optionPalette.heroEnd,
+                              ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -1122,8 +1285,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     final hasCompletedThemePrompt =
         prefs.getBool(_themePromptCompletedKey) ?? false;
-    final hasSavedTheme =
-        (prefs.getString('selected_app_theme') ?? '').trim().isNotEmpty;
+    final hasSavedTheme = (prefs.getString('selected_app_theme') ?? '')
+        .trim()
+        .isNotEmpty;
     if (!hasCompletedThemePrompt && !hasSavedTheme) return;
 
     _shopByBikeIntroRunning = true;
@@ -1158,10 +1322,7 @@ class _HomeScreenState extends State<HomeScreen>
       width: 16,
       height: 16,
       margin: const EdgeInsets.only(right: 8),
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 
@@ -1183,8 +1344,7 @@ class _HomeScreenState extends State<HomeScreen>
               page: 1,
               orderBy: "date",
               order: "desc",
-            ))
-              .items
+            )).items
           : await dataManager.getHomeProducts(
               page: 1,
               search: null,
@@ -1202,10 +1362,12 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
-      final parsedProducts =
-          data.map<Product>((e) => Product.fromJson(e)).toList();
-      final newProducts =
-          parsedProducts.where((product) => _isValidHomeProduct(product)).toList();
+      final parsedProducts = data
+          .map<Product>((e) => Product.fromJson(e))
+          .toList();
+      final newProducts = parsedProducts
+          .where((product) => _isValidHomeProduct(product))
+          .toList();
 
       if (mounted) {
         setState(() {
@@ -1239,7 +1401,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool _isValidHomeProduct(Product product) {
     final image = product.image.trim();
-    final hasValidImage = image.isNotEmpty && image.toLowerCase().startsWith("http");
+    final hasValidImage =
+        image.isNotEmpty && image.toLowerCase().startsWith("http");
 
     final normalizedPrice = product.price.replaceAll(",", "").trim();
     final parsedPrice = double.tryParse(normalizedPrice);
@@ -1297,10 +1460,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _normalizeSuggestionText(String value) {
-    return value
-        .toLowerCase()
-        .replaceAll(RegExp(r"[^a-z0-9]+"), " ")
-        .trim();
+    return value.toLowerCase().replaceAll(RegExp(r"[^a-z0-9]+"), " ").trim();
   }
 
   List<String> _suggestionTokens(String value) {
@@ -1434,16 +1594,11 @@ class _HomeScreenState extends State<HomeScreen>
     final debounceMs = trimmed.isEmpty
         ? 100
         : trimmed.length < 3
-            ? 220
-            : 300;
-    _debounce = Timer(
-      Duration(milliseconds: debounceMs),
-      () {
-        fetchProductsFromServer(
-          searchQuery: trimmed.isEmpty ? null : trimmed,
-        );
-      },
-    );
+        ? 220
+        : 300;
+    _debounce = Timer(Duration(milliseconds: debounceMs), () {
+      fetchProductsFromServer(searchQuery: trimmed.isEmpty ? null : trimmed);
+    });
   }
 
   void _fillSearchFromBadge(String query) {
@@ -1492,10 +1647,10 @@ class _HomeScreenState extends State<HomeScreen>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                    if (hasQuery)
-                      Container(
-                        width: 34,
-                        height: 34,
+                  if (hasQuery)
+                    Container(
+                      width: 34,
+                      height: 34,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
@@ -1517,10 +1672,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 palette.accent,
                                 palette.highlight,
                               ]
-                            : [
-                                palette.accent,
-                                palette.accent,
-                              ],
+                            : [palette.accent, palette.accent],
                       ),
                       borderRadius: BorderRadius.circular(10),
                       boxShadow: hasQuery
@@ -1543,14 +1695,14 @@ class _HomeScreenState extends State<HomeScreen>
                             child: Icon(
                               Icons.arrow_forward_rounded,
                               color: palette.onAccent,
-                                size: 19,
+                              size: 19,
                             ),
                           ),
-                          Icon(
-                            Icons.arrow_forward_rounded,
-                            color: palette.onAccent,
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: palette.onAccent,
                           size: 15,
-                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1657,7 +1809,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (trimmed.isEmpty) return;
     final overlay = Overlay.of(context, rootOverlay: true);
     final startBox = startContext.findRenderObject() as RenderBox?;
-    final endBox = _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
+    final endBox =
+        _searchBoxKey.currentContext?.findRenderObject() as RenderBox?;
     if (overlay == null || startBox == null || endBox == null) {
       _fillSearchFromBadge(trimmed);
       return;
@@ -1687,8 +1840,9 @@ class _HomeScreenState extends State<HomeScreen>
         final dy =
             (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
             (math.sin(t * math.pi) * 24);
-        final opacity =
-            t < 0.9 ? 1.0 : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
+        final opacity = t < 0.9
+            ? 1.0
+            : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
         final glowOpacity = (1 - t).clamp(0.0, 1.0) * 0.22;
 
         return Positioned(
@@ -1777,7 +1931,9 @@ class _HomeScreenState extends State<HomeScreen>
     final currentVersion = (await api.fetchAppVersion())?.trim() ?? "";
     final cachedVersion = (prefs.getString(_videoCacheVersionKey) ?? "").trim();
 
-    if (cachedRaw.isNotEmpty && currentVersion.isNotEmpty && cachedVersion == currentVersion) {
+    if (cachedRaw.isNotEmpty &&
+        currentVersion.isNotEmpty &&
+        cachedVersion == currentVersion) {
       return;
     }
 
@@ -1834,7 +1990,9 @@ class _HomeScreenState extends State<HomeScreen>
     final categories = await dataManager.getSuggestedCategoriesForBike(
       selectedBike,
     );
-    final rawProducts = await dataManager.getSuggestedProductsForBike(selectedBike);
+    final rawProducts = await dataManager.getSuggestedProductsForBike(
+      selectedBike,
+    );
     final products = rawProducts
         .whereType<Map>()
         .map((item) => Product.fromJson(Map<String, dynamic>.from(item)))
@@ -1893,7 +2051,9 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      selectedBike.isEmpty ? "Bike Garage" : "For Your Bike: $selectedBike",
+                      selectedBike.isEmpty
+                          ? "Bike Garage"
+                          : "For Your Bike: $selectedBike",
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -1905,7 +2065,9 @@ class _HomeScreenState extends State<HomeScreen>
                     onPressed: () async {
                       await Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const BikeGarageScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const BikeGarageScreen(),
+                        ),
                       );
                       _refreshBikeGarage();
                     },
@@ -1975,7 +2137,8 @@ class _HomeScreenState extends State<HomeScreen>
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => ProductDetailScreen(product: product),
+                              builder: (_) =>
+                                  ProductDetailScreen(product: product),
                             ),
                           ).then((_) => _loadRecentlyViewedProducts());
                         },
@@ -2000,7 +2163,8 @@ class _HomeScreenState extends State<HomeScreen>
                                     url: product.image,
                                     fit: BoxFit.cover,
                                     memCacheWidth: _homeProductImageCacheWidth,
-                                    maxWidthDiskCache: _homeProductImageCacheWidth,
+                                    maxWidthDiskCache:
+                                        _homeProductImageCacheWidth,
                                     filterQuality: FilterQuality.low,
                                   ),
                                 ),
@@ -2038,19 +2202,28 @@ class _HomeScreenState extends State<HomeScreen>
                                             style: const TextStyle(
                                               color: Colors.white70,
                                               fontSize: 12,
-                                              decoration: TextDecoration.lineThrough,
+                                              decoration:
+                                                  TextDecoration.lineThrough,
                                             ),
                                           ),
                                         if (product.discountPercent > 0)
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 3,
+                                            ),
                                             decoration: BoxDecoration(
                                               color: primaryRed,
-                                              borderRadius: BorderRadius.circular(999),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
                                             ),
                                             child: Text(
                                               "${product.discountPercent}% OFF",
-                                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                              ),
                                             ),
                                           ),
                                       ],
@@ -2126,12 +2299,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (seen.contains(youtubeId)) continue;
 
       seen.add(youtubeId);
-      items.add(
-        HomeBannerMedia.video(
-          sourceUrl: value,
-          youtubeId: youtubeId,
-        ),
-      );
+      items.add(HomeBannerMedia.video(sourceUrl: value, youtubeId: youtubeId));
     }
 
     return items;
@@ -2153,7 +2321,8 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (uri.pathSegments.isNotEmpty) {
         final first = uri.pathSegments.first.toLowerCase();
-        if ((first == "embed" || first == "shorts") && uri.pathSegments.length > 1) {
+        if ((first == "embed" || first == "shorts") &&
+            uri.pathSegments.length > 1) {
           return uri.pathSegments[1].trim();
         }
       }
@@ -2163,10 +2332,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _normalizeCategoryName(String value) {
-    return value
-        .toLowerCase()
-        .replaceAll(RegExp(r"[^a-z0-9]+"), " ")
-        .trim();
+    return value.toLowerCase().replaceAll(RegExp(r"[^a-z0-9]+"), " ").trim();
   }
 
   bool _opensTopCategoryDetailPage(String key) {
@@ -2181,9 +2347,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _handleTopCategoryTap(_HomeTopNavItem item) {
     if (item.key == "shop_by_category") {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ShopByCategoryScreen()),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const ShopByCategoryScreen()));
     } else if (item.key == "shop_by_bike") {
       if (_selectedTopCategoryKey != item.key) {
         setState(() {
@@ -2342,12 +2508,7 @@ class _HomeScreenState extends State<HomeScreen>
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
       child: Container(
         height: navHeight,
-        margin: EdgeInsets.fromLTRB(
-          0,
-          lerpDouble(0, 2, collapse)!,
-          0,
-          0,
-        ),
+        margin: EdgeInsets.fromLTRB(0, lerpDouble(0, 2, collapse)!, 0, 0),
         decoration: const BoxDecoration(
           borderRadius: BorderRadius.zero,
           color: Colors.transparent,
@@ -2369,16 +2530,18 @@ class _HomeScreenState extends State<HomeScreen>
                   final isIntroTarget =
                       _shopByBikeIntroTopActive && item.key == "shop_by_bike";
                   final title = item.title;
-                  final tileWidth =
-                      isPrimaryItem ? lerpDouble(108, 114, collapse)! : itemWidth;
+                  final tileWidth = isPrimaryItem
+                      ? lerpDouble(108, 114, collapse)!
+                      : itemWidth;
                   final tileContentHeight = itemContentHeight;
                   return SizedBox(
                     width: tileWidth,
                     child: AnimatedBuilder(
                       animation: _shopByBikeIntroController,
                       builder: (context, child) {
-                        final pulse =
-                            isIntroTarget ? _shopByBikeIntroController.value : 0.0;
+                        final pulse = isIntroTarget
+                            ? _shopByBikeIntroController.value
+                            : 0.0;
                         return Transform.scale(
                           scale: 1 + (pulse * 0.045),
                           child: AnimatedContainer(
@@ -2388,28 +2551,28 @@ class _HomeScreenState extends State<HomeScreen>
                               horizontal: isPrimaryItem ? 8 : 0,
                               vertical: 3,
                             ),
-                              decoration: BoxDecoration(
-                               color: isIntroTarget
-                                    ? Color.lerp(
-                                        palette.highlight.withOpacity(0.20),
-                                        palette.highlight.withOpacity(0.34),
-                                        pulse,
-                                      )
-                                    : isPrimaryItem
-                                        ? palette.accent.withOpacity(
-                                            palette.isLight ? 0.16 : 0.20,
-                                          )
-                                    : Colors.transparent,
-                               borderRadius: BorderRadius.circular(16),
-                               border: isIntroTarget || isPrimaryItem
-                                   ? Border.all(
-                                       color: isIntroTarget
-                                           ? palette.highlight.withOpacity(0.58)
-                                           : palette.accent.withOpacity(0.46),
-                                       width: isPrimaryItem ? 1.4 : 1.2,
-                                     )
-                                   : null,
-                               boxShadow: const [],
+                            decoration: BoxDecoration(
+                              color: isIntroTarget
+                                  ? Color.lerp(
+                                      palette.highlight.withOpacity(0.20),
+                                      palette.highlight.withOpacity(0.34),
+                                      pulse,
+                                    )
+                                  : isPrimaryItem
+                                  ? palette.accent.withOpacity(
+                                      palette.isLight ? 0.16 : 0.20,
+                                    )
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(16),
+                              border: isIntroTarget || isPrimaryItem
+                                  ? Border.all(
+                                      color: isIntroTarget
+                                          ? palette.highlight.withOpacity(0.58)
+                                          : palette.accent.withOpacity(0.46),
+                                      width: isPrimaryItem ? 1.4 : 1.2,
+                                    )
+                                  : null,
+                              boxShadow: const [],
                             ),
                             child: child,
                           ),
@@ -2425,88 +2588,90 @@ class _HomeScreenState extends State<HomeScreen>
                             padding: EdgeInsets.symmetric(
                               horizontal: lerpDouble(4, 6, collapse)!,
                             ),
-                          child: SizedBox(
-                            height: tileContentHeight,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                ClipRect(
-                                  child: SizedBox(
-                                    height: iconSlotHeight,
-                                    child: Opacity(
-                                      opacity: iconOpacity,
-                                      child: Center(
-                                        child: Container(
-                                          width: isPrimaryItem ? 34 : 32,
-                                          height: isPrimaryItem ? 23 : 22,
-                                           decoration: BoxDecoration(
-                                            color: isSelected
-                                                ? palette.accent.withOpacity(
-                                                    palette.isLight ? 0.16 : 0.18,
-                                                  )
-                                                : Colors.transparent,
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                          child: Icon(
-                                            item.icon,
-                                            color: isSelected
-                                                ? palette.accent
-                                                : palette.textPrimary,
-                                            size: isPrimaryItem ? 18 : 17,
+                            child: SizedBox(
+                              height: tileContentHeight,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  ClipRect(
+                                    child: SizedBox(
+                                      height: iconSlotHeight,
+                                      child: Opacity(
+                                        opacity: iconOpacity,
+                                        child: Center(
+                                          child: Container(
+                                            width: isPrimaryItem ? 34 : 32,
+                                            height: isPrimaryItem ? 23 : 22,
+                                            decoration: BoxDecoration(
+                                              color: isSelected
+                                                  ? palette.accent.withOpacity(
+                                                      palette.isLight
+                                                          ? 0.16
+                                                          : 0.18,
+                                                    )
+                                                  : Colors.transparent,
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: Icon(
+                                              item.icon,
+                                              color: isSelected
+                                                  ? palette.accent
+                                                  : palette.textPrimary,
+                                              size: isPrimaryItem ? 18 : 17,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(height: 1),
-                                SizedBox(
-                                  height: textHeight,
-                                  child: Text(
-                                    title,
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                     style: TextStyle(
-                                       color: isSelected
-                                          ? compactSelectedTextColor
-                                          : compactTextColor,
-                                       fontSize:
-                                           isPrimaryItem ? textFontSize + 0.4 : textFontSize,
-                                      height: 1.05,
-                                       fontWeight: isPrimaryItem || isSelected
-                                           ? FontWeight.w900
-                                           : FontWeight.w700,
+                                  const SizedBox(height: 1),
+                                  SizedBox(
+                                    height: textHeight,
+                                    child: Text(
+                                      title,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? compactSelectedTextColor
+                                            : compactTextColor,
+                                        fontSize: isPrimaryItem
+                                            ? textFontSize + 0.4
+                                            : textFontSize,
+                                        height: 1.05,
+                                        fontWeight: isPrimaryItem || isSelected
+                                            ? FontWeight.w900
+                                            : FontWeight.w700,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                SizedBox(
-                                  height: 1,
-                                ),
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 160),
-                                  curve: Curves.easeOutCubic,
-                                  width: isSelected
-                                      ? lerpDouble(44, 52, collapse)!
-                                      : 0,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                     color: isSelected
-                                         ? palette.accent
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(999),
+                                  SizedBox(height: 1),
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 160),
+                                    curve: Curves.easeOutCubic,
+                                    width: isSelected
+                                        ? lerpDouble(44, 52, collapse)!
+                                        : 0,
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? palette.accent
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
               Align(
                 alignment: Alignment.centerLeft,
                 child: IgnorePointer(
@@ -2565,12 +2730,13 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
               ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
+
   Widget _buildCategoryScroller(List<dynamic> categories) {
     final palette = context.appPalette;
     final isWhiteTheme = palette.id == AppThemes.whitePalette.id;
@@ -2616,7 +2782,9 @@ class _HomeScreenState extends State<HomeScreen>
                           color: isWhiteTheme ? palette.surface : Colors.white,
                           borderRadius: BorderRadius.circular(40),
                           border: Border.all(
-                            color: isWhiteTheme ? palette.border : palette.accent,
+                            color: isWhiteTheme
+                                ? palette.border
+                                : palette.accent,
                             width: 2.6,
                           ),
                           boxShadow: [
@@ -2632,7 +2800,8 @@ class _HomeScreenState extends State<HomeScreen>
                           ],
                         ),
                         padding: const EdgeInsets.all(10),
-                        child: cat["image"] != null && cat["image"]["src"] != null
+                        child:
+                            cat["image"] != null && cat["image"]["src"] != null
                             ? AppCachedImage(
                                 url: (cat["image"]["src"] ?? "").toString(),
                                 fit: BoxFit.contain,
@@ -2892,15 +3061,9 @@ class _HomeScreenState extends State<HomeScreen>
                     decoration: BoxDecoration(
                       color: accentColor.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: accentColor.withOpacity(0.28),
-                      ),
+                      border: Border.all(color: accentColor.withOpacity(0.28)),
                     ),
-                    child: Icon(
-                      icon,
-                      color: accentColor,
-                      size: 17,
-                    ),
+                    child: Icon(icon, color: accentColor, size: 17),
                   ),
                   const SizedBox(width: 9),
                   Text(
@@ -3032,11 +3195,8 @@ class _HomeScreenState extends State<HomeScreen>
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: 5,
             separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (_, __) => const SkeletonBox(
-              width: 124,
-              height: 168,
-              radius: 14,
-            ),
+            itemBuilder: (_, __) =>
+                const SkeletonBox(width: 124, height: 168, radius: 14),
           ),
         ),
         const SizedBox(height: 8),
@@ -3396,7 +3556,8 @@ class _HomeScreenState extends State<HomeScreen>
   }) async {
     final overlay = Overlay.of(context, rootOverlay: true);
     final startBox = startContext.findRenderObject() as RenderBox?;
-    final endBox = _cartIconKey.currentContext?.findRenderObject() as RenderBox?;
+    final endBox =
+        _cartIconKey.currentContext?.findRenderObject() as RenderBox?;
     if (overlay == null || startBox == null || endBox == null) {
       _cartPulseController.forward(from: 0);
       return;
@@ -3420,13 +3581,16 @@ class _HomeScreenState extends State<HomeScreen>
         final t = animation.value;
         final squeezeProgress = ((t - 0.76) / 0.24).clamp(0.0, 1.0);
         final size = lerpDouble(62, 16, t) ?? 24;
-        final dx = (lerpDouble(start.dx, end.dx, t) ?? end.dx) +
+        final dx =
+            (lerpDouble(start.dx, end.dx, t) ?? end.dx) +
             (math.sin(t * math.pi * 1.15) * 14 * (1 - t));
-        final dy = (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
+        final dy =
+            (lerpDouble(start.dy, end.dy, t) ?? end.dy) -
             (math.sin(t * math.pi) * 138) -
             (squeezeProgress * 6);
-        final opacity =
-            t < 0.9 ? 1.0 : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
+        final opacity = t < 0.9
+            ? 1.0
+            : (1.0 - ((t - 0.9) / 0.1)).clamp(0.0, 1.0);
         final glowSize = size + 20;
         final iconSize = lerpDouble(18, 8, t) ?? 12;
         final scaleBoost = 1 + (math.sin(t * math.pi) * 0.16);
@@ -3551,7 +3715,10 @@ class _HomeScreenState extends State<HomeScreen>
                           decoration: BoxDecoration(
                             color: palette.accent,
                             shape: BoxShape.circle,
-                            border: Border.all(color: palette.surface, width: 1.5),
+                            border: Border.all(
+                              color: palette.surface,
+                              width: 1.5,
+                            ),
                           ),
                           child: Icon(
                             Icons.shopping_bag_rounded,
@@ -3601,7 +3768,9 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final now = DateTime.now().millisecondsSinceEpoch;
       final response = await http
-          .get(Uri.parse("https://yanaworldwide.store/Yanaapp/banner.txt?v=$now"))
+          .get(
+            Uri.parse("https://yanaworldwide.store/Yanaapp/banner.txt?v=$now"),
+          )
           .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return;
 
@@ -3739,516 +3908,602 @@ class _HomeScreenState extends State<HomeScreen>
         final searchHeight = lerpDouble(48, 46, collapse)!;
 
         return Scaffold(
-      backgroundColor: palette.background,
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(appBarHeight),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [palette.heroStart, palette.heroEnd, palette.background],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomCenter,
-            ),
-          ),
-            padding: EdgeInsets.only(
-              top: topInset + lerpDouble(8, 4, collapse)!,
-            left: 16,
-            right: 16,
-          ),
-          child: ClipRect(
-            child: OverflowBox(
-              alignment: Alignment.topCenter,
-              maxHeight: double.infinity,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-              _buildScrollCollapsingChild(
-                expandedHeight: logoRowHeight,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(22),
-                      color: palette.surface,
-                      border: Border.all(color: palette.border.withOpacity(0.7)),
-                    ),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: palette.isLight ? 12 : 0,
-                        vertical: palette.isLight ? 6 : 0,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            palette.isLight
-                                ? const Color(0xFF121212)
-                                : Colors.transparent,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Image.asset(
-                        "assets/icon/icon.png",
-                        height: 28,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
+          backgroundColor: palette.background,
+          appBar: PreferredSize(
+            preferredSize: Size.fromHeight(appBarHeight),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    palette.heroStart,
+                    palette.heroEnd,
+                    palette.background,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              padding: EdgeInsets.only(
+                top: topInset + lerpDouble(8, 4, collapse)!,
+                left: 16,
+                right: 16,
+              ),
+              child: ClipRect(
+                child: OverflowBox(
+                  alignment: Alignment.topCenter,
+                  maxHeight: double.infinity,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildScrollCollapsingChild(
+                        expandedHeight: logoRowHeight,
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                      FutureBuilder<String?>(
-                        future: _authTokenFuture,
-                        builder: (context, snapshot) {
-                          // ⬇️ UPDATED: Added Signup Button next to Login ⬇️
-                          if (!snapshot.hasData || snapshot.data == null) {
-                            return Row(
-                              children: [
-                                IconButton(
-                                  tooltip: "Wallet",
-                                  icon: Icon(
-                                    Icons.account_balance_wallet_outlined,
-                                    color: palette.accent,
-                                    size: 20,
-                                  ),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const WalletScreen(),
-                                      ),
-                                    );
-                                  },
-                                  constraints: const BoxConstraints(
-                                    minHeight: 34,
-                                    minWidth: 34,
-                                  ),
-                                  padding: const EdgeInsets.all(5),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(22),
+                                color: palette.surface,
+                                border: Border.all(
+                                  color: palette.border.withOpacity(0.7),
                                 ),
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    minimumSize: Size.zero,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                  ),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => LoginScreen(),
-                                      ),
-                                    ).then((_) => _refreshAuthToken());
-                                  },
-                                  child: Text(
-                                    "Login",
-                                    style: TextStyle(
-                                      color: palette.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 12,
-                                    ),
-                                  ),
+                              ),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: palette.isLight ? 12 : 0,
+                                  vertical: palette.isLight ? 6 : 0,
                                 ),
-                                Text(
-                                  "|",
-                                  style: TextStyle(color: palette.textMuted),
+                                decoration: BoxDecoration(
+                                  color: palette.isLight
+                                      ? const Color(0xFF121212)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    minimumSize: Size.zero,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                  ),
-                                  onPressed: () {
-                                    // ✅ STEP 3: Implement Signup Screen Navigation
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => SignupScreen(),
-                                      ),
-                                    ).then((_) => _refreshAuthToken());
-                                  },
-                                  child: Text(
-                                    "Signup",
-                                    style: TextStyle(
-                                      color: palette.accent,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                    ),
-                                  ),
+                                child: Image.asset(
+                                  "assets/icon/icon.png",
+                                  height: 28,
+                                  fit: BoxFit.contain,
                                 ),
-                              ],
-                            );
-                          }
-                          // ⬆️ UPDATED: Added Signup Button next to Login ⬆️
+                              ),
+                            ),
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerRight,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      FutureBuilder<String?>(
+                                        future: _authTokenFuture,
+                                        builder: (context, snapshot) {
+                                          // ⬇️ UPDATED: Added Signup Button next to Login ⬇️
+                                          if (!snapshot.hasData ||
+                                              snapshot.data == null) {
+                                            return Row(
+                                              children: [
+                                                IconButton(
+                                                  tooltip: "Wallet",
+                                                  icon: Icon(
+                                                    Icons
+                                                        .account_balance_wallet_outlined,
+                                                    color: palette.accent,
+                                                    size: 20,
+                                                  ),
+                                                  onPressed: () {
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            const WalletScreen(),
+                                                      ),
+                                                    );
+                                                  },
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minHeight: 34,
+                                                        minWidth: 34,
+                                                      ),
+                                                  padding: const EdgeInsets.all(
+                                                    5,
+                                                  ),
+                                                ),
+                                                TextButton(
+                                                  style: TextButton.styleFrom(
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize:
+                                                        MaterialTapTargetSize
+                                                            .shrinkWrap,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 4,
+                                                        ),
+                                                  ),
+                                                  onPressed: () {
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            LoginScreen(),
+                                                      ),
+                                                    ).then(
+                                                      (_) =>
+                                                          _refreshAuthToken(),
+                                                    );
+                                                  },
+                                                  child: Text(
+                                                    "Login",
+                                                    style: TextStyle(
+                                                      color:
+                                                          palette.textPrimary,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                                Text(
+                                                  "|",
+                                                  style: TextStyle(
+                                                    color: palette.textMuted,
+                                                  ),
+                                                ),
+                                                TextButton(
+                                                  style: TextButton.styleFrom(
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize:
+                                                        MaterialTapTargetSize
+                                                            .shrinkWrap,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 4,
+                                                        ),
+                                                  ),
+                                                  onPressed: () {
+                                                    // ✅ STEP 3: Implement Signup Screen Navigation
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            SignupScreen(),
+                                                      ),
+                                                    ).then(
+                                                      (_) =>
+                                                          _refreshAuthToken(),
+                                                    );
+                                                  },
+                                                  child: Text(
+                                                    "Signup",
+                                                    style: TextStyle(
+                                                      color: palette.accent,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          }
+                                          // ⬆️ UPDATED: Added Signup Button next to Login ⬆️
 
-                          return Row(
-                            children: [
-                              IconButton(
-                                tooltip: "Wallet",
-                                icon: Icon(
-                                  Icons.account_balance_wallet_outlined,
-                                  color: palette.accent,
-                                  size: 20,
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const WalletScreen(),
-                                    ),
-                                  );
-                                },
-                                constraints: const BoxConstraints(
-                                  minHeight: 34,
-                                  minWidth: 34,
-                                ),
-                                padding: const EdgeInsets.all(5),
-                              ),
-                              FutureBuilder<bool>(
-                                future: AuthService().isPrivilegedAdmin(),
-                                builder: (context, adminSnapshot) {
-                                  if (adminSnapshot.data != true) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  return Padding(
-                                    padding: const EdgeInsets.only(right: 4),
-                                    child: TextButton.icon(
-                                      style: TextButton.styleFrom(
-                                        minimumSize: Size.zero,
-                                        tapTargetSize:
-                                            MaterialTapTargetSize.shrinkWrap,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 6,
-                                        ),
-                                        backgroundColor:
-                                            palette.accent.withOpacity(0.14),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                          side: BorderSide(
-                                             color: palette.accent.withOpacity(0.35),
-                                          ),
-                                        ),
+                                          return Row(
+                                            children: [
+                                              IconButton(
+                                                tooltip: "Wallet",
+                                                icon: Icon(
+                                                  Icons
+                                                      .account_balance_wallet_outlined,
+                                                  color: palette.accent,
+                                                  size: 20,
+                                                ),
+                                                onPressed: () {
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) =>
+                                                          const WalletScreen(),
+                                                    ),
+                                                  );
+                                                },
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      minHeight: 34,
+                                                      minWidth: 34,
+                                                    ),
+                                                padding: const EdgeInsets.all(
+                                                  5,
+                                                ),
+                                              ),
+                                              FutureBuilder<bool>(
+                                                future: AuthService()
+                                                    .isPrivilegedAdmin(),
+                                                builder: (context, adminSnapshot) {
+                                                  if (adminSnapshot.data !=
+                                                      true) {
+                                                    return const SizedBox.shrink();
+                                                  }
+                                                  return Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          right: 4,
+                                                        ),
+                                                    child: TextButton.icon(
+                                                      style: TextButton.styleFrom(
+                                                        minimumSize: Size.zero,
+                                                        tapTargetSize:
+                                                            MaterialTapTargetSize
+                                                                .shrinkWrap,
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 6,
+                                                            ),
+                                                        backgroundColor: palette
+                                                            .accent
+                                                            .withOpacity(0.14),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                10,
+                                                              ),
+                                                          side: BorderSide(
+                                                            color: palette
+                                                                .accent
+                                                                .withOpacity(
+                                                                  0.35,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      onPressed: () {
+                                                        Navigator.push(
+                                                          context,
+                                                          MaterialPageRoute(
+                                                            builder: (_) =>
+                                                                const AdminDashboardScreen(),
+                                                          ),
+                                                        );
+                                                      },
+                                                      icon: Icon(
+                                                        Icons
+                                                            .admin_panel_settings_outlined,
+                                                        color: palette.accent,
+                                                        size: 16,
+                                                      ),
+                                                      label: Text(
+                                                        "Admin",
+                                                        style: TextStyle(
+                                                          color: palette.accent,
+                                                          fontSize: 12,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                              IconButton(
+                                                icon: Icon(
+                                                  Icons.person,
+                                                  color: palette.textPrimary,
+                                                  size: 20,
+                                                ),
+                                                onPressed: () {
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) =>
+                                                          const ProfileScreen(),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ],
+                                          );
+                                        },
                                       ),
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const AdminDashboardScreen(),
-                                          ),
-                                        );
-                                      },
-                                      icon: Icon(
-                                        Icons.admin_panel_settings_outlined,
-                                        color: palette.accent,
-                                        size: 16,
+                                      Consumer<CartProvider>(
+                                        builder: (context, cart, child) {
+                                          return Stack(
+                                            children: [
+                                              IconButton(
+                                                key: _cartIconKey,
+                                                icon: AnimatedBuilder(
+                                                  animation:
+                                                      _cartPulseController,
+                                                  builder: (context, child) {
+                                                    final progress = Curves
+                                                        .elasticOut
+                                                        .transform(
+                                                          _cartPulseController
+                                                              .value
+                                                              .clamp(0.0, 1.0),
+                                                        );
+                                                    final scale =
+                                                        1 + (0.24 * progress);
+                                                    final rotation =
+                                                        math.sin(
+                                                          progress *
+                                                              math.pi *
+                                                              4,
+                                                        ) *
+                                                        0.12 *
+                                                        (1 - progress);
+                                                    return Transform.rotate(
+                                                      angle: rotation,
+                                                      child: Transform.scale(
+                                                        scale: scale,
+                                                        child: child,
+                                                      ),
+                                                    );
+                                                  },
+                                                  child: Icon(
+                                                    Icons.shopping_cart,
+                                                    color: palette.textPrimary,
+                                                    size: 20,
+                                                  ),
+                                                ),
+                                                onPressed: () {
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) =>
+                                                          const CartScreen(),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                              if (cart.items.isNotEmpty)
+                                                Positioned(
+                                                  right: 5,
+                                                  top: 5,
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.all(4),
+                                                    decoration: BoxDecoration(
+                                                      color: palette.accent,
+                                                      shape: BoxShape.circle,
+                                                    ),
+                                                    child: Text(
+                                                      cart.items.length
+                                                          .toString(),
+                                                      style: TextStyle(
+                                                        color: palette.onAccent,
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w900,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          );
+                                        },
                                       ),
-                                      label: Text(
-                                        "Admin",
-                                        style: TextStyle(
-                                          color: palette.accent,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  Icons.person,
-                                  color: palette.textPrimary,
-                                  size: 20,
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ProfileScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      Consumer<CartProvider>(
-                        builder: (context, cart, child) {
-                          return Stack(
-                            children: [
-                              IconButton(
-                                key: _cartIconKey,
-                                icon: AnimatedBuilder(
-                                  animation: _cartPulseController,
-                                  builder: (context, child) {
-                                    final progress = Curves.elasticOut.transform(
-                                      _cartPulseController.value.clamp(0.0, 1.0),
-                                    );
-                                    final scale = 1 + (0.24 * progress);
-                                    final rotation =
-                                        math.sin(progress * math.pi * 4) *
-                                        0.12 *
-                                        (1 - progress);
-                                    return Transform.rotate(
-                                      angle: rotation,
-                                      child: Transform.scale(
-                                        scale: scale,
-                                        child: child,
-                                      ),
-                                    );
-                                  },
-                                  child: Icon(
-                                    Icons.shopping_cart,
-                                    color: palette.textPrimary,
-                                    size: 20,
+                                    ],
                                   ),
                                 ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const CartScreen(),
-                                    ),
-                                  );
-                                },
                               ),
-                              if (cart.items.isNotEmpty)
-                                Positioned(
-                                  right: 5,
-                                  top: 5,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: palette.accent,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Text(
-                                      cart.items.length.toString(),
-                                      style: TextStyle(
-                                        color: palette.onAccent,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
+                            ),
                           ],
                         ),
                       ),
-                    ),
-                  ),
-                  ],
-                ),
-              ),
-              SizedBox(height: headerGap),
-              Container(
-                key: _searchBoxKey,
-                height: searchHeight,
-                clipBehavior: Clip.hardEdge,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: palette.border),
-                  color: palette.surface,
-                ),
-                child: TextField(
-                  controller: searchController,
-                  focusNode: _searchFocusNode,
-                  onChanged: _handleSearchChanged,
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _goToSearch(),
-                  decoration: InputDecoration(
-                    hintText: "Search parts, SKU, model, brand...",
-                    hintStyle: TextStyle(
-                      color: palette.textMuted,
-                      fontSize: 13,
-                    ),
-                    prefixIcon: Icon(
-                      Icons.search_rounded,
-                      color: palette.accent,
-                      size: 20,
-                    ),
-                    prefixIconConstraints: const BoxConstraints(
-                      minWidth: 42,
-                      minHeight: 40,
-                      maxHeight: 42,
-                    ),
-                    suffixIcon: ClipRect(
-                      child: SizedBox(
-                        width: 84,
-                        height: 42,
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 3),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                width: 30,
-                                height: 36,
-                                child: Tooltip(
-                                  message: "Barcode scanner",
-                                  child: InkWell(
-                                    onTap: _openBarcodeSearchOption,
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Center(
-                                      child: Container(
-                                        width: 28,
-                                        height: 28,
-                                        decoration: BoxDecoration(
-                                          color: palette.accent.withOpacity(0.10),
-                                          borderRadius: BorderRadius.circular(10),
-                                          border: Border.all(
-                                            color: palette.accent.withOpacity(0.22),
+                      SizedBox(height: headerGap),
+                      Container(
+                        key: _searchBoxKey,
+                        height: searchHeight,
+                        clipBehavior: Clip.hardEdge,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: palette.border),
+                          color: palette.surface,
+                        ),
+                        child: TextField(
+                          controller: searchController,
+                          focusNode: _searchFocusNode,
+                          onChanged: _handleSearchChanged,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => _goToSearch(),
+                          decoration: InputDecoration(
+                            hintText: "Search parts, SKU, model, brand...",
+                            hintStyle: TextStyle(
+                              color: palette.textMuted,
+                              fontSize: 13,
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search_rounded,
+                              color: palette.accent,
+                              size: 20,
+                            ),
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 42,
+                              minHeight: 40,
+                              maxHeight: 42,
+                            ),
+                            suffixIcon: ClipRect(
+                              child: SizedBox(
+                                width: 84,
+                                height: 42,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 3),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        width: 30,
+                                        height: 36,
+                                        child: Tooltip(
+                                          message: "Barcode scanner",
+                                          child: InkWell(
+                                            onTap: _openBarcodeSearchOption,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            child: Center(
+                                              child: Container(
+                                                width: 28,
+                                                height: 28,
+                                                decoration: BoxDecoration(
+                                                  color: palette.accent
+                                                      .withOpacity(0.10),
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  border: Border.all(
+                                                    color: palette.accent
+                                                        .withOpacity(0.22),
+                                                  ),
+                                                ),
+                                                child: Icon(
+                                                  Icons.qr_code_scanner_rounded,
+                                                  color: palette.accent,
+                                                  size: 18,
+                                                ),
+                                              ),
+                                            ),
                                           ),
                                         ),
-                                        child: Icon(
-                                          Icons.qr_code_scanner_rounded,
-                                          color: palette.accent,
-                                          size: 18,
+                                      ),
+                                      SizedBox(
+                                        width: 48,
+                                        height: 42,
+                                        child: InkWell(
+                                          onTap: _goToSearch,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: Center(
+                                            child: _buildAnimatedSearchArrow(
+                                              palette,
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                    ),
+                                    ],
                                   ),
                                 ),
                               ),
-                              SizedBox(
-                                width: 48,
-                                height: 42,
-                                child: InkWell(
-                                  onTap: _goToSearch,
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Center(
-                                    child: _buildAnimatedSearchArrow(palette),
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
+                            suffixIconConstraints: const BoxConstraints(
+                              minWidth: 84,
+                              minHeight: 40,
+                              maxWidth: 84,
+                              maxHeight: 44,
+                            ),
+                            border: InputBorder.none,
+                            isDense: true, // VERY IMPORTANT
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    suffixIconConstraints: const BoxConstraints(
-                      minWidth: 84,
-                      minHeight: 40,
-                      maxWidth: 84,
-                      maxHeight: 44,
-                    ),
-                    border: InputBorder.none,
-                    isDense: true, // VERY IMPORTANT
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                  ),
-                ),
-              ),
-              if (showSearchSuggestions)
-                _buildSearchSuggestionsPanel(palette, searchSuggestions),
-              SizedBox(height: headerGap),
-              _buildScrollCollapsingChild(
-                expandedHeight: commerceStripHeight,
-                translateY: -12,
-                child: _buildCommerceHeroStrip(palette),
-              ),
-              SizedBox(height: commerceToCategoryGap * (1 - collapse)),
-              _buildTopCategoryNavigation(_defaultTopCategoryNavigation()),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-      body: body!,
-      // ✅ WHATSAPP BUTTON (Correct Position)
-      floatingActionButton: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 180),
-        switchInCurve: Curves.easeOut,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, animation) {
-          return ScaleTransition(
-            scale: animation,
-            child: FadeTransition(opacity: animation, child: child),
-          );
-        },
-        child: _homeChromeCollapseProgress > 0.08
-            ? FloatingActionButton(
-                key: const ValueKey("back_to_top_fab"),
-                onPressed: _scrollToTop,
-                backgroundColor: palette.surfaceStrong,
-                foregroundColor: palette.accent,
-                shape: const CircleBorder(),
-                child: const Icon(Icons.keyboard_arrow_up_rounded, size: 30),
-              )
-            : FloatingActionButton(
-                key: const ValueKey("whatsapp_fab"),
-                onPressed: openWhatsApp,
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                shape: const CircleBorder(),
-                child: SizedBox(
-                  width: 26,
-                  height: 26,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Icon(
-                        Icons.chat_bubble_rounded,
-                        size: 24,
-                        color: Colors.white,
-                      ),
-                      Positioned(
-                        top: 7,
-                        child: Icon(
-                          Icons.call_rounded,
-                          size: 12,
-                          color: Colors.black,
+                      if (showSearchSuggestions)
+                        _buildSearchSuggestionsPanel(
+                          palette,
+                          searchSuggestions,
                         ),
+                      SizedBox(height: headerGap),
+                      _buildScrollCollapsingChild(
+                        expandedHeight: commerceStripHeight,
+                        translateY: -12,
+                        child: _buildCommerceHeroStrip(palette),
+                      ),
+                      SizedBox(height: commerceToCategoryGap * (1 - collapse)),
+                      _buildTopCategoryNavigation(
+                        _defaultTopCategoryNavigation(),
                       ),
                     ],
                   ),
                 ),
               ),
-      ),
-    );
+            ),
+          ),
+          body: body!,
+          // ✅ WHATSAPP BUTTON (Correct Position)
+          floatingActionButton: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) {
+              return ScaleTransition(
+                scale: animation,
+                child: FadeTransition(opacity: animation, child: child),
+              );
+            },
+            child: _homeChromeCollapseProgress > 0.08
+                ? FloatingActionButton(
+                    key: const ValueKey("back_to_top_fab"),
+                    onPressed: _scrollToTop,
+                    backgroundColor: palette.surfaceStrong,
+                    foregroundColor: palette.accent,
+                    shape: const CircleBorder(),
+                    child: const Icon(
+                      Icons.keyboard_arrow_up_rounded,
+                      size: 30,
+                    ),
+                  )
+                : FloatingActionButton(
+                    key: const ValueKey("whatsapp_fab"),
+                    onPressed: openWhatsApp,
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
+                    shape: const CircleBorder(),
+                    child: SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_rounded,
+                            size: 24,
+                            color: Colors.white,
+                          ),
+                          Positioned(
+                            top: 7,
+                            child: Icon(
+                              Icons.call_rounded,
+                              size: 12,
+                              color: Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+        );
       },
     );
   }
 
   Widget buildMainContent() {
     final palette = context.appPalette;
-    final currentBanner = _bannerItems.isNotEmpty &&
+    final currentBanner =
+        _bannerItems.isNotEmpty &&
             _currentBannerIndex >= 0 &&
             _currentBannerIndex < _bannerItems.length
         ? _bannerItems[_currentBannerIndex]
         : null;
-    final autoPlayBanners = currentBanner == null ? true : !currentBanner.isVideo;
+    final autoPlayBanners = currentBanner == null
+        ? true
+        : !currentBanner.isVideo;
 
     return CustomScrollView(
       controller: _scrollController,
@@ -4265,14 +4520,14 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: palette.accent.withOpacity(0.78), width: 1.8),
+                    border: Border.all(
+                      color: palette.accent.withOpacity(0.78),
+                      width: 1.8,
+                    ),
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        palette.surfaceStrong,
-                        palette.surface,
-                      ],
+                      colors: [palette.surfaceStrong, palette.surface],
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -4322,8 +4577,12 @@ class _HomeScreenState extends State<HomeScreen>
                                         ? () {
                                             if (!mounted) return;
                                             if (_currentBannerIndex >= 0 &&
-                                                _currentBannerIndex < _bannerItems.length &&
-                                                identical(_bannerItems[_currentBannerIndex], item)) {
+                                                _currentBannerIndex <
+                                                    _bannerItems.length &&
+                                                identical(
+                                                  _bannerItems[_currentBannerIndex],
+                                                  item,
+                                                )) {
                                               setState(() {});
                                             }
                                           }
@@ -4633,9 +4892,7 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
 
-        SliverToBoxAdapter(
-          child: _buildBikeGarageSection(),
-        ),
+        SliverToBoxAdapter(child: _buildBikeGarageSection()),
 
         SliverToBoxAdapter(
           child: Padding(
@@ -4670,7 +4927,10 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: palette.surface,
                     borderRadius: BorderRadius.circular(999),
@@ -4742,13 +5002,14 @@ class _HomeScreenState extends State<HomeScreen>
 
                   return _buildProductGridCard(product, palette);
                 },
-                childCount: (isInitialLoading && products.isEmpty) ? 6 : products.length,
+                childCount: (isInitialLoading && products.isEmpty)
+                    ? 6
+                    : products.length,
                 addAutomaticKeepAlives: false,
                 addRepaintBoundaries: true,
               ),
             ),
           ),
-
       ],
     );
   }
@@ -4783,13 +5044,15 @@ class _HomeScreenState extends State<HomeScreen>
         children: [
           Row(
             children: [
-              Icon(Icons.cloud_sync_rounded, color: palette.highlight, size: 20),
+              Icon(
+                Icons.cloud_sync_rounded,
+                color: palette.highlight,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _serverRetryActive
-                      ? "Server is busy"
-                      : "Connection issue",
+                  _serverRetryActive ? "Server is busy" : "Connection issue",
                   style: TextStyle(
                     color: palette.textPrimary,
                     fontSize: 14,
@@ -4868,9 +5131,7 @@ class _HomeScreenState extends State<HomeScreen>
         onTap: () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => const TrackingWebViewScreen(),
-            ),
+            MaterialPageRoute(builder: (_) => const TrackingWebViewScreen()),
           );
         },
       ),
@@ -4915,11 +5176,7 @@ class _HomeScreenState extends State<HomeScreen>
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          saleRow(0),
-          const SizedBox(height: 10),
-          saleRow(2),
-        ],
+        children: [saleRow(0), const SizedBox(height: 10), saleRow(2)],
       ),
     );
   }
@@ -5215,16 +5472,16 @@ class _HomeScreenState extends State<HomeScreen>
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: () {
-              Navigator.push(
-                context,
-                PageRouteBuilder(
-                  pageBuilder:
-                      (_, __, ___) => ProductDetailScreen(product: product),
-                  transitionsBuilder: (_, animation, __, child) {
-                    return FadeTransition(opacity: animation, child: child);
-                  },
-                ),
-              ).then((_) => _loadRecentlyViewedProducts());
+            Navigator.push(
+              context,
+              PageRouteBuilder(
+                pageBuilder: (_, __, ___) =>
+                    ProductDetailScreen(product: product),
+                transitionsBuilder: (_, animation, __, child) {
+                  return FadeTransition(opacity: animation, child: child);
+                },
+              ),
+            ).then((_) => _loadRecentlyViewedProducts());
           },
           child: Container(
             decoration: BoxDecoration(
@@ -5321,8 +5578,8 @@ class _HomeScreenState extends State<HomeScreen>
                               style: TextStyle(
                                 color:
                                     palette.highlight.computeLuminance() > 0.45
-                                        ? Colors.black
-                                        : Colors.white,
+                                    ? Colors.black
+                                    : Colors.white,
                                 fontSize: 8.5,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -5411,7 +5668,8 @@ class _HomeScreenState extends State<HomeScreen>
                 Consumer<CartProvider>(
                   builder: (context, cart, _) {
                     final isInCart = cart.items.any(
-                      (item) => item.id == product.id && item.variationId == null,
+                      (item) =>
+                          item.id == product.id && item.variationId == null,
                     );
 
                     return Padding(
@@ -5420,8 +5678,9 @@ class _HomeScreenState extends State<HomeScreen>
                         width: double.infinity,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                isInCart ? palette.surfaceStrong : palette.accent,
+                            backgroundColor: isInCart
+                                ? palette.surfaceStrong
+                                : palette.accent,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(999),
@@ -5463,7 +5722,9 @@ class _HomeScreenState extends State<HomeScreen>
                           child: Text(
                             isInCart ? "Go to Bag" : "Add to Bag",
                             style: TextStyle(
-                              color: isInCart ? palette.textPrimary : palette.onAccent,
+                              color: isInCart
+                                  ? palette.textPrimary
+                                  : palette.onAccent,
                               fontWeight: FontWeight.w800,
                               fontSize: 11.5,
                             ),
@@ -5500,16 +5761,16 @@ class _HomeScreenState extends State<HomeScreen>
           palette: palette,
           icon: Icons.bolt_rounded,
           title: "RCB",
-          onTap: (startContext) => _fillSearchFromBadgeAnimated("RCB", startContext),
+          onTap: (startContext) =>
+              _fillSearchFromBadgeAnimated("RCB", startContext),
         ),
         const SizedBox(width: 8),
         _buildHeroBadge(
           palette: palette,
           icon: Icons.flash_on_rounded,
           title: "UMA Racing",
-          onTap:
-              (startContext) =>
-                  _fillSearchFromBadgeAnimated("UMA Racing", startContext),
+          onTap: (startContext) =>
+              _fillSearchFromBadgeAnimated("UMA Racing", startContext),
         ),
       ],
     );
@@ -5601,7 +5862,9 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   InkWell(
                     onTap: () {
-                      setState(() => _quickAccessExpanded = !_quickAccessExpanded);
+                      setState(
+                        () => _quickAccessExpanded = !_quickAccessExpanded,
+                      );
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
@@ -5630,7 +5893,9 @@ class _HomeScreenState extends State<HomeScreen>
                       onTap: () async {
                         await Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const BikeGarageScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const BikeGarageScreen(),
+                          ),
                         );
                         _refreshBikeGarage();
                       },
@@ -5723,20 +5988,21 @@ class _HomeScreenState extends State<HomeScreen>
     final activeColors = colors.length >= 2
         ? colors
         : [palette.accentStrong, palette.highlight];
-    final disabledColors = [
-      palette.surfaceSoft,
-      palette.surfaceStrong,
-    ];
+    final disabledColors = [palette.surfaceSoft, palette.surfaceStrong];
     final cardColors = isEnabled ? activeColors : disabledColors;
     final titleSize = title.length > 22 ? 11.8 : titleFontSize + 1.2;
-    final activeTextColor =
-        cardColors.first.computeLuminance() > 0.45 ? Colors.black : Colors.white;
+    final activeTextColor = cardColors.first.computeLuminance() > 0.45
+        ? Colors.black
+        : Colors.white;
     final titleColor = isEnabled ? activeTextColor : palette.textMuted;
     final subtitleColor = isEnabled
-        ? activeTextColor.withOpacity(activeTextColor == Colors.black ? 0.72 : 0.84)
+        ? activeTextColor.withOpacity(
+            activeTextColor == Colors.black ? 0.72 : 0.84,
+          )
         : palette.textMuted;
-    final badgeColor =
-        isEnabled ? activeTextColor.withOpacity(0.90) : palette.surfaceSoft;
+    final badgeColor = isEnabled
+        ? activeTextColor.withOpacity(0.90)
+        : palette.surfaceSoft;
     final badgeIconColor = isEnabled
         ? (activeTextColor == Colors.black ? Colors.white : cardColors.first)
         : palette.textMuted;
@@ -5747,108 +6013,108 @@ class _HomeScreenState extends State<HomeScreen>
         onTap: isEnabled ? onTap : null,
         borderRadius: BorderRadius.circular(20),
         child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: cardColors,
-          ),
-          border: Border.all(
-            color: isEnabled
-                ? Colors.white.withOpacity(0.24)
-                : palette.border.withOpacity(0.70),
-            width: 1.1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: cardColors.first.withOpacity(isEnabled ? 0.26 : 0.08),
-              blurRadius: 14,
-              offset: const Offset(0, 7),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: cardColors,
             ),
-          ],
-        ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: badgeColor,
-                      borderRadius: BorderRadius.circular(13),
-                      border: Border.all(
-                        color: palette.accent.withOpacity(0.32),
+            border: Border.all(
+              color: isEnabled
+                  ? Colors.white.withOpacity(0.24)
+                  : palette.border.withOpacity(0.70),
+              width: 1.1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: cardColors.first.withOpacity(isEnabled ? 0.26 : 0.08),
+                blurRadius: 14,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: badgeColor,
+                        borderRadius: BorderRadius.circular(13),
+                        border: Border.all(
+                          color: palette.accent.withOpacity(0.32),
+                        ),
+                      ),
+                      child: Icon(
+                        isEnabled ? icon : Icons.lock_rounded,
+                        color: badgeIconColor,
+                        size: 17,
                       ),
                     ),
-                    child: Icon(
-                      isEnabled ? icon : Icons.lock_rounded,
-                      color: badgeIconColor,
-                      size: 17,
+                    const SizedBox(height: 5),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: titleColor,
+                        fontSize: titleSize - 0.4,
+                        height: 1.05,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: titleColor,
-                      fontSize: titleSize - 0.4,
-                      height: 1.05,
-                      fontWeight: FontWeight.w900,
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: subtitleColor,
+                        fontSize: 9.5,
+                        height: 1.05,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: subtitleColor,
-                      fontSize: 9.5,
-                      height: 1.05,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (!isEnabled)
-              Positioned(
-                top: 2,
-                right: 2,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.22),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text(
-                    "OFF",
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
+              if (!isEnabled)
+                Positioned(
+                  top: 2,
+                  right: 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      "OFF",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -5868,7 +6134,8 @@ class _DailySaleCountdownCard extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_DailySaleCountdownCard> createState() => _DailySaleCountdownCardState();
+  State<_DailySaleCountdownCard> createState() =>
+      _DailySaleCountdownCardState();
 }
 
 class _DailySaleCountdownCardState extends State<_DailySaleCountdownCard> {
@@ -5934,8 +6201,9 @@ class _DailySaleCountdownCardState extends State<_DailySaleCountdownCard> {
     final isAdminEnabled = widget.isEnabled;
     final isLive = isAdminEnabled && _isLive;
     final cardColors = isLive ? activeColors : disabledColors;
-    final baseTextColor =
-        cardColors.first.computeLuminance() > 0.45 ? Colors.black : Colors.white;
+    final baseTextColor = cardColors.first.computeLuminance() > 0.45
+        ? Colors.black
+        : Colors.white;
     final textColor = isLive ? baseTextColor : palette.textMuted;
     final mutedColor = isLive
         ? baseTextColor.withOpacity(baseTextColor == Colors.black ? 0.72 : 0.84)
@@ -6024,8 +6292,10 @@ class _DailySaleCountdownCardState extends State<_DailySaleCountdownCard> {
                   ),
                   const SizedBox(height: 4),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(
                         baseTextColor == Colors.black ? 0.10 : 0.22,
@@ -6104,10 +6374,7 @@ class _BarcodeScannerScreenState extends State<_BarcodeScannerScreen> {
       ),
       body: Stack(
         children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _handleDetect,
-          ),
+          MobileScanner(controller: _controller, onDetect: _handleDetect),
           Center(
             child: Container(
               width: 260,
