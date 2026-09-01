@@ -165,6 +165,7 @@ class _MainNavigationState extends State<MainNavigation> {
         ),
         child: SafeArea(
           top: false,
+          bottom: false,
           minimum: EdgeInsets.zero,
           child: Consumer<CartProvider>(
             builder: (context, cart, child) {
