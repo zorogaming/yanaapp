@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
+import '../config.dart';
 import '../services/data_manager.dart';
-import '../services/share_service.dart';
 import '../models/product_model.dart';
 import 'product_detail_screen.dart';
 import '../widgets/app_cached_image.dart';
@@ -35,6 +36,27 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
     products = dataManager.getCategoryProducts(widget.categoryId);
   }
 
+  String _storeHomeUrl() {
+    final uri = Uri.parse(Config.baseUrl);
+    return "${uri.scheme}://${uri.host}";
+  }
+
+  String _slugify(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r"[^a-z0-9]+"), "-")
+        .replaceAll(RegExp(r"(^-|-$)"), "");
+  }
+
+  Future<void> _shareCategory() async {
+    final categoryUrl =
+        "${_storeHomeUrl()}/product-category/${_slugify(widget.categoryName)}/";
+    final message =
+        "Check this category on YANA Worldwide:\n${widget.categoryName}\n$categoryUrl";
+
+    await Share.share(message, subject: widget.categoryName);
+  }
+
   @override
   Widget build(BuildContext context) {
     final safeBottom = MediaQuery.of(context).viewPadding.bottom;
@@ -53,13 +75,9 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: "Share category",
-            onPressed: () => ShareService.instance.shareCategory(
-              context: context,
-              categoryId: widget.categoryId,
-              categoryName: widget.categoryName,
-            ),
-            icon: const Icon(Icons.share_rounded, color: Colors.white),
+            onPressed: _shareCategory,
+            icon: const Icon(Icons.share_rounded),
+            tooltip: "Share Category",
           ),
         ],
       ),
@@ -69,7 +87,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const ProductsGridSkeleton(
               padding: EdgeInsets.all(10),
-              childAspectRatio: 0.54,
+              childAspectRatio: 0.6,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
             );
@@ -101,7 +119,7 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
               crossAxisCount: 2,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
-              childAspectRatio: 0.54,
+              childAspectRatio: 0.6, // 🔥 Height ratio control
             ),
             itemBuilder: (context, index) {
               Product product = productList[index];
@@ -161,26 +179,6 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                 ),
                               ),
                               const SizedBox(height: 5),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: IconButton(
-                                  tooltip: "Share product",
-                                  visualDensity: VisualDensity.compact,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 32,
-                                    minHeight: 32,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  onPressed: () => ShareService.instance
-                                      .shareProduct(context, product),
-                                  icon: Icon(
-                                    Icons.share_rounded,
-                                    color: ktmOrange,
-                                    size: 18,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
                               Wrap(
                                 spacing: 6,
                                 runSpacing: 4,
@@ -227,14 +225,12 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                               ),
                               const Text(
                                 "or ₹867/month with Snapmint",
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 11,
                                   color: Colors.grey,
                                 ),
                               ),
-                              const SizedBox(height: 6),
+                              const Spacer(),
                               // KTM Style Add to Cart Button
                               SizedBox(
                                 width: double.infinity,
@@ -263,17 +259,12 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
                                     ),
                                     elevation: 0,
                                   ),
-                                  child: const FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      "ADD TO BAG",
-                                      textAlign: TextAlign.center,
-                                      maxLines: 1,
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 0,
-                                      ),
+                                  child: const Text(
+                                    "ADD TO BAG",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 8, // Text size wahi rakha
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                 ),

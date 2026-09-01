@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'ai_brain_screen.dart';
+import 'admin_whatsapp_community_popup_screen.dart';
 import 'bike_garage_screen.dart';
 import 'motorcycle_service_station_screen.dart';
 import 'policy_pages_screen.dart';
@@ -140,6 +141,12 @@ class _MenuScreenState extends State<MenuScreen> {
                   icon: Icons.admin_panel_settings_rounded,
                   title: "Admin Service Bookings",
                   screen: const MotorcycleServiceAdminScreen(),
+                ),
+                _buildDivider(palette),
+                _buildTile(
+                  icon: Icons.chat_outlined,
+                  title: "WhatsApp Popup Settings",
+                  screen: const AdminWhatsAppCommunityPopupScreen(),
                 ),
               ],
             ],

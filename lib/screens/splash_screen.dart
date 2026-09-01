@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'package:package_info_plus/package_info_plus.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
-import '../services/app_sound_service.dart';
 import 'login_screen.dart';
 import 'main_navigation.dart';
 
@@ -23,17 +23,14 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
-  late Animation<double> _glowAnimation;
-  late Animation<double> _textSlideAnimation;
-  late Animation<double> _logoFloatAnimation;
-  late Animation<double> _ringSpinAnimation;
+  late Animation<double> _exitOverlayScaleAnimation;
+  late Animation<double> _exitOverlayOpacityAnimation;
+  late Animation<double> _taglineOpacityAnimation;
+  late Animation<double> _taglineSlideAnimation;
   Timer? _startupFallbackTimer;
   bool _didNavigate = false;
   late final DateTime _startedAt;
-  String _appVersionLabel = "";
-
-  final Color ktmOrange = const Color(0xFFFF6600);
-  final Color ktmBlack = const Color(0xFF000000);
+  AudioPlayer? _splashAudioPlayer;
 
   @override
   void initState() {
@@ -42,72 +39,108 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: _minimumSplashDuration,
     );
 
-    _scaleAnimation = Tween<double>(
-      begin: 0.5,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+    _scaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.72, end: 1.12)
+            .chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 42,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.12, end: 0.96)
+            .chain(CurveTween(curve: Curves.easeInOutCubic)),
+        weight: 24,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.96, end: 2.15)
+            .chain(CurveTween(curve: Curves.easeInExpo)),
+        weight: 24,
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween<double>(2.15),
+        weight: 10,
+      ),
+    ]).animate(_controller);
 
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
-
-    _glowAnimation = Tween<double>(begin: 0.25, end: 1.0).animate(
+    _exitOverlayScaleAnimation = Tween<double>(begin: 0.0, end: 18.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.12, 1.0, curve: Curves.easeOutCubic),
+        curve: const Interval(0.76, 1.0, curve: Curves.easeInExpo),
       ),
     );
 
-    _textSlideAnimation = Tween<double>(begin: 26, end: 0).animate(
+    _exitOverlayOpacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.35, 1.0, curve: Curves.easeOutCubic),
+        curve: const Interval(0.82, 1.0, curve: Curves.easeIn),
       ),
     );
 
-    _logoFloatAnimation = Tween<double>(begin: 18, end: 0).animate(
+    _taglineOpacityAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 28,
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween<double>(1.0),
+        weight: 56,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 16,
+      ),
+    ]).animate(_controller);
+
+    _taglineSlideAnimation = Tween<double>(begin: 18.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.0, 0.82, curve: Curves.easeOutBack),
+        curve: const Interval(0.12, 0.48, curve: Curves.easeOutCubic),
       ),
     );
 
-    _ringSpinAnimation = Tween<double>(begin: -0.08, end: 0.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
+    _fadeAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 18,
       ),
-    );
+      TweenSequenceItem(
+        tween: ConstantTween<double>(1.0),
+        weight: 94,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 6,
+      ),
+    ]).animate(_controller);
 
     _controller.forward();
-    unawaited(_playSplashSound());
+    _playSplashSound();
     _startupFallbackTimer = Timer(
       _startupFallbackDelay,
       _navigateToFallbackDestination,
     );
-    _loadAppVersion();
     Future.microtask(checkLogin);
   }
 
-  Future<void> _loadAppVersion() async {
-    try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      if (!mounted) return;
-      setState(() {
-        final version = packageInfo.version.trim();
-        _appVersionLabel = version.isEmpty ? "" : "App v$version";
-      });
-    } catch (_) {
-      // Version text is optional on splash.
-    }
-  }
-
   Future<void> _playSplashSound() async {
-    await AppSoundService.instance.playSplashSound();
+    try {
+      final player = AudioPlayer();
+      _splashAudioPlayer = player;
+      await player.setReleaseMode(ReleaseMode.stop);
+      await player.setVolume(1.0);
+      final bytes = await rootBundle.load('assets/Yana.mp3');
+      await player.play(
+        BytesSource(bytes.buffer.asUint8List()),
+      );
+    } catch (_) {
+      // Splash audio should never block app startup.
+    }
   }
 
   Future<void> checkLogin() async {
@@ -178,214 +211,105 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     if (!mounted) return;
-    await Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => screen));
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => screen),
+    );
   }
 
   @override
   void dispose() {
     _startupFallbackTimer?.cancel();
     _controller.dispose();
-    unawaited(AppSoundService.instance.stopSplashSound());
+    _splashAudioPlayer?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    const splashBackground = Colors.black;
+    final splashTextColor = Colors.white.withOpacity(0.82);
+
     return Scaffold(
-      backgroundColor: ktmBlack,
+      backgroundColor: splashBackground,
       body: Stack(
+        alignment: Alignment.center,
         children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0, -0.18),
-                  radius: 1.0,
-                  colors: [
-                    ktmOrange.withOpacity(0.18),
-                    const Color(0xFF12060A),
-                    ktmBlack,
-                  ],
-                  stops: const [0.0, 0.42, 1.0],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: -90,
-            right: -50,
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: Container(
-                width: 220,
-                height: 220,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: ktmOrange.withOpacity(0.10),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            left: -70,
-            bottom: 110,
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: Container(
-                width: 180,
-                height: 180,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.05),
-                ),
-              ),
-            ),
-          ),
           Center(
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                return Opacity(
-                  opacity: _fadeAnimation.value,
-                  child: Transform.translate(
-                    offset: Offset(0, _logoFloatAnimation.value),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 250,
-                          height: 250,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Container(
-                                width: 170 + (26 * _glowAnimation.value),
-                                height: 170 + (26 * _glowAnimation.value),
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: RadialGradient(
-                                    colors: [
-                                      ktmOrange.withOpacity(
-                                        0.34 * _glowAnimation.value,
-                                      ),
-                                      ktmOrange.withOpacity(
-                                        0.08 * _glowAnimation.value,
-                                      ),
-                                      Colors.transparent,
-                                    ],
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: ktmOrange.withOpacity(
-                                        0.30 * _glowAnimation.value,
-                                      ),
-                                      blurRadius: 42,
-                                      spreadRadius: 8,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Transform.rotate(
-                                angle: _ringSpinAnimation.value,
-                                child: Container(
-                                  width: 184,
-                                  height: 184,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white.withOpacity(0.09),
-                                      width: 1.2,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Transform.rotate(
-                                angle: -_ringSpinAnimation.value * 1.8,
-                                child: Container(
-                                  width: 214,
-                                  height: 214,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: ktmOrange.withOpacity(0.20),
-                                      width: 1.1,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Transform.scale(
-                                scale: _scaleAnimation.value,
-                                child: Container(
-                                  padding: const EdgeInsets.all(22),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.06),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white.withOpacity(0.12),
-                                    ),
-                                  ),
-                                  child: Image.asset(
-                                    "assets/icon/icon.png",
-                                    width: 118,
-                                    height: 118,
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+            child: SizedBox(
+              width: 240,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, child) {
+                      return Opacity(
+                        opacity: _fadeAnimation.value,
+                        child: Transform.scale(
+                          scale: _scaleAnimation.value,
+                          child: child,
                         ),
-                        Transform.translate(
-                          offset: Offset(0, _textSlideAnimation.value),
-                          child: Opacity(
-                            opacity: _fadeAnimation.value,
-                            child: Column(
-                              children: [
-                                const Text(
-                                  "Welcome Rider",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 31,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 1.8,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  "Gears up. Ride ahead.",
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.70),
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                              ],
+                      );
+                    },
+                    child: Center(
+                      child: Image.asset(
+                        "assets/icon/icon.png",
+                        width: 180,
+                        height: 180,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, _) {
+                      return Opacity(
+                        opacity: _taglineOpacityAnimation.value,
+                        child: Transform.translate(
+                          offset: Offset(0, _taglineSlideAnimation.value),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: Text(
+                              "Gears up. Ride ahead.",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: splashTextColor,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.8,
+                              ),
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
-          ),
-          if (_appVersionLabel.isNotEmpty)
-            Positioned(
-              right: 16,
-              bottom: 12,
-              child: Text(
-                _appVersionLabel,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
+                ],
               ),
             ),
+          ),
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) {
+              return Opacity(
+                opacity: _exitOverlayOpacityAnimation.value,
+                child: Transform.scale(
+                  scale: _exitOverlayScaleAnimation.value,
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: splashBackground,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
         ],
       ),
     );

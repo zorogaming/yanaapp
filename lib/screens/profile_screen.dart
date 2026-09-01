@@ -16,8 +16,8 @@ import 'admin_control_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_home_popup_screen.dart';
 import 'admin_update_notification_screen.dart';
-import 'admin_whatsapp_community_popup_screen.dart';
 import 'admin_user_credits_screen.dart';
+import 'admin_whatsapp_community_popup_screen.dart';
 import 'bike_garage_screen.dart';
 import 'bug_report_screen.dart';
 import 'change_password_screen.dart';
@@ -54,7 +54,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool biometricEnabled = false;
   bool biometricAvailable = false;
   bool canAccessAdmin = false;
-  bool _deleteAccountInProgress = false;
   String _addressPreview = "No address added";
 
   @override
@@ -358,12 +357,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const ChangePasswordScreen(),
           subtitle: 'Change password directly inside the app',
         ),
-        _buildDestructiveTile(
-          Icons.delete_forever_outlined,
-          'Account Deletion',
-          'Enter your email to permanently delete this account',
-          _showDeleteAccountDialog,
-        ),
         const SizedBox(height: 18),
         _buildSectionLabel('Preferences'),
         _buildThemePreferenceCard(),
@@ -660,75 +653,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _showDeleteAccountDialog() async {
-    if (_deleteAccountInProgress) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        final palette = Theme.of(dialogContext).extension<AppThemePalette>() ??
-            AppThemes.midnightPalette;
-
-        return AlertDialog(
-          title: const Text('Delete Account'),
-          content: Text(
-            'Kya aap apna account permanently delete karna chahte ho? Delete ke baad aap logout ho jaoge.',
-            style: TextStyle(color: palette.textMuted),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              icon: const Icon(Icons.delete_forever_outlined),
-              label: const Text('Delete'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade700,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed == true) {
-      await _deleteCurrentAccount();
-    }
-  }
-
-  Future<void> _deleteCurrentAccount() async {
-    if (_deleteAccountInProgress) return;
-    setState(() => _deleteAccountInProgress = true);
-
-    final error = await AuthService().deleteAccount();
-    if (!mounted) return;
-
-    if (error != null) {
-      setState(() => _deleteAccountInProgress = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
-      return;
-    }
-
-    await AuthService().logout();
-    if (!mounted) return;
-    setState(() {
-      isLoggedIn = false;
-      userData = null;
-      canAccessAdmin = false;
-      _deleteAccountInProgress = false;
-    });
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const MainNavigation()),
-      (route) => false,
-    );
-  }
-
   Future<void> _showThemePicker() async {
     final themeController = context.read<AppThemeController>();
 
@@ -989,77 +913,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Icons.arrow_forward_ios_rounded,
                 size: 15,
                 color: palette.textMuted,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDestructiveTile(
-    IconData icon,
-    String title,
-    String subtitle,
-    VoidCallback onTap,
-  ) {
-    final palette = context.appPalette;
-    final danger = Colors.red.shade700;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: _deleteAccountInProgress ? null : onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: Ink(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: palette.surface,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: danger.withOpacity(0.3)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: danger.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(icon, color: danger),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: danger,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: palette.textMuted,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 15,
-                color: danger.withOpacity(0.8),
               ),
             ],
           ),

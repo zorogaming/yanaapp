@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import '../services/wallet_reminder_service.dart';
 import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
 import 'login_screen.dart';
@@ -63,11 +62,6 @@ class _WalletScreenState extends State<WalletScreen> {
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
     });
-    await WalletReminderService.instance.showIfDue(
-      balance: _balance,
-      banned: _banned,
-      minBilling: _minBilling,
-    );
   }
 
   String _txTitle(Map<String, dynamic> tx) {
@@ -146,7 +140,7 @@ class _WalletScreenState extends State<WalletScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Log in and get â‚¹200 in your wallet!',
+            'Log in and get ₹200 in your wallet!',
             style: TextStyle(
               color: palette.textPrimary,
               fontSize: 16,
@@ -155,7 +149,7 @@ class _WalletScreenState extends State<WalletScreen> {
           ),
           const SizedBox(height: 5),
           Text(
-            'New customers receive a one-time â‚¹200 welcome bonus after logging in.',
+            'New customers receive a one-time ₹200 welcome bonus after logging in.',
             style: TextStyle(color: palette.textMuted, fontSize: 12),
           ),
           const SizedBox(height: 12),
@@ -169,7 +163,7 @@ class _WalletScreenState extends State<WalletScreen> {
                 );
                 if (mounted) await _load();
               },
-              child: const Text('Log In & Get â‚¹200'),
+              child: const Text('Log In & Get ₹200'),
             ),
           ),
         ],

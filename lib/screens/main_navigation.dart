@@ -33,10 +33,12 @@ class _MainNavigationState extends State<MainNavigation> {
   bool _communityPopupShown = false;
   Timer? _communityPopupTimer;
   final AuthService _authService = AuthService();
+  final ValueNotifier<int> _homeRecentlyViewedRefresh = ValueNotifier<int>(0);
+  late final List<Widget> screens;
+  AppThemePalette get _palette => context.appPalette;
   Uri _whatsappCommunityUri = Uri.parse(
     WhatsAppCommunityPopupService.defaultInviteUrl,
   );
-  AppThemePalette get _palette => context.appPalette;
   static const List<String> _tabNames = [
     "home",
     "bag",
@@ -46,18 +48,21 @@ class _MainNavigationState extends State<MainNavigation> {
     "profile",
   ];
 
-  final List<Widget> screens = const [
-    HomeScreen(),
-    CartScreen(),
-    MenuScreen(),
-    NotificationInboxScreen(),
-    OrdersScreen(),
-    ProfileScreen(),
-  ];
-
   @override
   void initState() {
     super.initState();
+    screens = [
+      HomeScreen(recentlyViewedRefresh: _homeRecentlyViewedRefresh),
+      CartScreen(
+        onContinueShopping: () {
+          setState(() => currentIndex = 0);
+        },
+      ),
+      const MenuScreen(),
+      const NotificationInboxScreen(),
+      const OrdersScreen(),
+      const ProfileScreen(),
+    ];
     AnalyticsService.instance.logScreen("tab_home");
     NotificationInboxService.instance.refreshUnreadCount();
     _prepareStartup();
@@ -66,6 +71,7 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   void dispose() {
     _communityPopupTimer?.cancel();
+    _homeRecentlyViewedRefresh.dispose();
     super.dispose();
   }
 
@@ -89,7 +95,9 @@ class _MainNavigationState extends State<MainNavigation> {
     if (_communityPopupShown || _communityPopupTimer != null) return;
     _communityPopupTimer = Timer(const Duration(seconds: 16), () async {
       final shouldShow = await _loadCommunityPopupConfig();
-      if (shouldShow) await _showCommunityPopup();
+      if (shouldShow) {
+        await _showCommunityPopup();
+      }
     });
   }
 
@@ -143,67 +151,73 @@ class _MainNavigationState extends State<MainNavigation> {
         index: currentIndex,
         children: screens,
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        minimum: EdgeInsets.zero,
-        child: Consumer<CartProvider>(
-          builder: (context, cart, child) {
-            return ValueListenableBuilder<int>(
-              valueListenable: NotificationInboxService.instance.unreadCountNotifier,
-              builder: (context, unreadCount, _) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.zero,
-                    color: palette.accent,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.24),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      _buildNavItem(
-                        index: 0,
-                        label: "Home",
-                        icon: Icons.home_rounded,
-                      ),
-                      _buildNavItem(
-                        index: 1,
-                        label: "Bag",
-                        icon: Icons.shopping_cart_rounded,
-                        badgeCount: cart.itemCount,
-                      ),
-                      _buildNavItem(
-                        index: 2,
-                        label: "Menu",
-                        icon: Icons.grid_view_rounded,
-                      ),
-                      _buildNavItem(
-                        index: 3,
-                        label: "Alerts",
-                        icon: Icons.notifications_rounded,
-                        badgeCount: currentIndex == 3 ? 0 : unreadCount,
-                      ),
-                      _buildNavItem(
-                        index: 4,
-                        label: "Orders",
-                        icon: Icons.receipt_long_rounded,
-                      ),
-                      _buildNavItem(
-                        index: 5,
-                        label: "Profile",
-                        icon: Icons.person_rounded,
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
+      bottomNavigationBar: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: palette.accent,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.24),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          minimum: EdgeInsets.zero,
+          child: Consumer<CartProvider>(
+            builder: (context, cart, child) {
+              return ValueListenableBuilder<int>(
+                valueListenable:
+                    NotificationInboxService.instance.unreadCountNotifier,
+                builder: (context, unreadCount, _) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        _buildNavItem(
+                          index: 0,
+                          label: "Home",
+                          icon: Icons.home_rounded,
+                        ),
+                        _buildNavItem(
+                          index: 1,
+                          label: "Bag",
+                          icon: Icons.shopping_cart_rounded,
+                          badgeCount: cart.itemCount,
+                        ),
+                        _buildNavItem(
+                          index: 2,
+                          label: "Menu",
+                          icon: Icons.grid_view_rounded,
+                        ),
+                        _buildNavItem(
+                          index: 3,
+                          label: "Alerts",
+                          icon: Icons.notifications_rounded,
+                          badgeCount: currentIndex == 3 ? 0 : unreadCount,
+                        ),
+                        _buildNavItem(
+                          index: 4,
+                          label: "Orders",
+                          icon: Icons.receipt_long_rounded,
+                        ),
+                        _buildNavItem(
+                          index: 5,
+                          label: "Profile",
+                          icon: Icons.person_rounded,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -234,6 +248,9 @@ class _MainNavigationState extends State<MainNavigation> {
             }
           }
           if (!mounted) return;
+          if (index == 0) {
+            _homeRecentlyViewedRefresh.value++;
+          }
           setState(() => currentIndex = index);
           if (index == 3) {
             NotificationInboxService.instance.markAllRead();
@@ -244,7 +261,7 @@ class _MainNavigationState extends State<MainNavigation> {
           duration: const Duration(milliseconds: 220),
           padding: const EdgeInsets.symmetric(vertical: 2),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(6),
             color: Colors.transparent,
           ),
           child: Column(
@@ -259,7 +276,7 @@ class _MainNavigationState extends State<MainNavigation> {
                     height: 30,
                     decoration: BoxDecoration(
                       color: isSelected ? Colors.black : Colors.transparent,
-                      borderRadius: BorderRadius.circular(15),
+                      borderRadius: BorderRadius.circular(6),
                       boxShadow: isSelected
                           ? [
                               BoxShadow(
@@ -278,7 +295,7 @@ class _MainNavigationState extends State<MainNavigation> {
                   ),
                   if (badgeCount > 0)
                     Positioned(
-                      right: -6,
+                      right: -8,
                       top: -5,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -293,11 +310,11 @@ class _MainNavigationState extends State<MainNavigation> {
                         child: Text(
                           badgeCount > 99 ? "99+" : badgeCount.toString(),
                           textAlign: TextAlign.center,
-                           style: TextStyle(
-                             color: palette.accent,
-                             fontSize: 8,
-                             fontWeight: FontWeight.w700,
-                           ),
+                          style: TextStyle(
+                            color: palette.accent,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),

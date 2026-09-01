@@ -1139,4 +1139,3 @@ String _normalizeCategoryKey(String value) {
       .trim()
       .replaceAll(RegExp(r"\s+"), " ");
 }
-

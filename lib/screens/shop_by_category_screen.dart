@@ -592,4 +592,3 @@ IconData _iconForTitle(String rawTitle) {
   }
   return Icons.two_wheeler_rounded;
 }
-

@@ -601,10 +601,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             ),
                             const SizedBox(height: 10),
                             _actionTile(
-                              icon: Icons.chat_rounded,
+                              icon: Icons.arrow_forward_ios_rounded,
                               title: 'WhatsApp Community Popup',
                               subtitle:
-                                  'Customer popup enable karo aur invite link manage karo',
+                                  'Join popup enable/disable aur invite link manage karo',
                               onTap: () => _openScreen(
                                 const AdminWhatsAppCommunityPopupScreen(),
                               ),

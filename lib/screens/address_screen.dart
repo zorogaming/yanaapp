@@ -91,9 +91,10 @@ class _AddressScreenState extends State<AddressScreen> {
         "city": "",
         "state": "",
         "postcode": "",
-        "country": "IN",
-      },
+        "country": "IN"
+      }
     });
+
     if (!mounted) return;
     setState(() {
       firstName.clear();
@@ -104,9 +105,8 @@ class _AddressScreenState extends State<AddressScreen> {
       postcode.clear();
       _isSaving = false;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Address Removed")),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text("Address Removed")));
   }
 
   @override
@@ -151,7 +151,7 @@ class _AddressScreenState extends State<AddressScreen> {
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
                     onPressed: _isSaving ? null : removeAddress,
-                    icon: const Icon(Icons.delete_outline_rounded),
+                    icon: const Icon(Icons.delete_outline),
                     label: const Text("Remove Address"),
                   ),
                 ],
