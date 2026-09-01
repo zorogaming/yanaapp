@@ -152,52 +152,17 @@ class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
     }
 
     final embedUrl = Uri.https(
-      'www.youtube-nocookie.com',
+      'www.youtube.com',
       '/embed/$safeId',
       {
         'autoplay': '1',
         'mute': '1',
         'playsinline': '1',
-        'controls': '0',
+        'controls': '1',
         'rel': '0',
         'modestbranding': '1',
-        'enablejsapi': '1',
       },
     );
-    final html = '''
-<!doctype html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <style>
-    html, body, iframe {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: #000;
-      overflow: hidden;
-    }
-    iframe {
-      position: fixed;
-      inset: 0;
-      border: 0;
-    }
-  </style>
-</head>
-<body>
-  <iframe
-    id="player"
-    src="$embedUrl"
-    allow="autoplay; encrypted-media; picture-in-picture"
-    allowfullscreen>
-  </iframe>
-  <script>
-    window.YanaVideoState && window.YanaVideoState.postMessage('play');
-  </script>
-</body>
-</html>
-''';
 
     final controller = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -230,7 +195,7 @@ class _HomeBannerMediaCardState extends State<HomeBannerMediaCard> {
       );
     }
 
-    controller.loadHtmlString(html);
+    controller.loadRequest(embedUrl);
     return controller;
   }
 
