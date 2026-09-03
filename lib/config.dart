@@ -21,6 +21,7 @@ class Config {
   static const String payuEnvironment = "0"; // 0: Production, 1: Test
 
   // Cashfree PG SDK config
+  // Cashfree stays enabled for Android. Checkout hides it only on iOS.
   static const bool enableCashfree = true;
   static const String cashfreeEnvironment = "PRODUCTION";
   static const String cashfreeAppId = "5719733da50189700e9d1561fb379175";

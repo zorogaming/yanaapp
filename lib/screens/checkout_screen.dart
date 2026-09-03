@@ -46,7 +46,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final PayUService _payuService = PayUService();
   final RazorpayService _razorpayService = RazorpayService();
   final CFPaymentGatewayService _cashfreeGateway = CFPaymentGatewayService();
-  final bool _isCashfreeEnabled = Config.enableCashfree;
+  final bool _isCashfreeEnabled = Config.enableCashfree && Platform.isAndroid;
   final bool _isRazorpayEnabled = Config.enableRazorpay;
   bool _isPayuAllowedForUser = false;
   Completer<bool>? _cashfreePaymentCompleter;
@@ -4455,20 +4455,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             const SizedBox(height: 8),
                             Column(
                               children: [
-                                _buildGatewayOptionTile(
-                                  value: "cashfree",
-                                  title: "Cashfree",
-                                  subtitle: "Cards, UPI and netbanking",
-                                  icon: Icons.account_balance_outlined,
-                                  groupValue: selectedOnlineGateway,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      selectedOnlineGateway = value;
-                                    });
-                                  },
-                                ),
+                                if (_isCashfreeEnabled)
+                                  _buildGatewayOptionTile(
+                                    value: "cashfree",
+                                    title: "Cashfree",
+                                    subtitle: "Cards, UPI and netbanking",
+                                    icon: Icons.account_balance_outlined,
+                                    groupValue: selectedOnlineGateway,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        selectedOnlineGateway = value;
+                                      });
+                                    },
+                                  ),
                                 if (_isRazorpayEnabled) ...[
-                                  const SizedBox(height: 10),
+                                  if (_isCashfreeEnabled)
+                                    const SizedBox(height: 10),
                                   _buildGatewayOptionTile(
                                     value: "razorpay",
                                     title: "Razorpay",
