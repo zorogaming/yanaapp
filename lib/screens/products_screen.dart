@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
-import '../config.dart';
 import '../services/woo_service.dart';
 import '../services/data_manager.dart';
+import '../services/share_service.dart';
 import '../models/product_model.dart';
 import '../models/cart_item.dart';
 import '../providers/cart_provider.dart';
@@ -425,11 +424,6 @@ class _ProductsScreenState extends State<ProductsScreen>
     fetchProducts();
   }
 
-  String _storeHomeUrl() {
-    final uri = Uri.parse(Config.baseUrl);
-    return "${uri.scheme}://${uri.host}";
-  }
-
   String _slugify(String value) {
     return value
         .toLowerCase()
@@ -438,12 +432,15 @@ class _ProductsScreenState extends State<ProductsScreen>
   }
 
   Future<void> _shareCategory() async {
-    final categoryUrl =
-        "${_storeHomeUrl()}/product-category/${_slugify(widget.title)}/";
-    final message =
-        "Check this category on YANA Worldwide:\n${widget.title}\n$categoryUrl";
+    final categoryId = widget.categoryId;
+    if (categoryId == null) return;
 
-    await Share.share(message, subject: widget.title);
+    await ShareService.instance.shareCategory(
+      context: context,
+      categoryId: categoryId,
+      categoryName: widget.title,
+      categorySlug: _slugify(widget.title),
+    );
   }
 
   @override

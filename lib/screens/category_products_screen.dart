@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
-import '../config.dart';
 import '../services/data_manager.dart';
+import '../services/share_service.dart';
 import '../models/product_model.dart';
 import 'product_detail_screen.dart';
 import '../widgets/app_cached_image.dart';
@@ -36,11 +35,6 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
     products = dataManager.getCategoryProducts(widget.categoryId);
   }
 
-  String _storeHomeUrl() {
-    final uri = Uri.parse(Config.baseUrl);
-    return "${uri.scheme}://${uri.host}";
-  }
-
   String _slugify(String value) {
     return value
         .toLowerCase()
@@ -49,12 +43,12 @@ class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
   }
 
   Future<void> _shareCategory() async {
-    final categoryUrl =
-        "${_storeHomeUrl()}/product-category/${_slugify(widget.categoryName)}/";
-    final message =
-        "Check this category on YANA Worldwide:\n${widget.categoryName}\n$categoryUrl";
-
-    await Share.share(message, subject: widget.categoryName);
+    await ShareService.instance.shareCategory(
+      context: context,
+      categoryId: widget.categoryId,
+      categoryName: widget.categoryName,
+      categorySlug: _slugify(widget.categoryName),
+    );
   }
 
   @override
