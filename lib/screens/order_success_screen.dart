@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
 
 class OrderSuccessScreen extends StatefulWidget {
   final int orderId;
+  final bool confirmationPending;
 
   const OrderSuccessScreen({
     super.key,
     required this.orderId,
+    this.confirmationPending = false,
   });
 
   @override
@@ -18,10 +21,12 @@ class OrderSuccessScreen extends StatefulWidget {
 
 class _OrderSuccessScreenState extends State<OrderSuccessScreen> {
   AudioPlayer? _audioPlayer;
+  late Future<Map<String, dynamic>> _orderFuture;
 
   @override
   void initState() {
     super.initState();
+    _orderFuture = WooService().fetchOrderById(widget.orderId);
     _playSuccessSound();
   }
 
@@ -87,112 +92,165 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen> {
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: panelColor,
-                      borderRadius: BorderRadius.circular(34),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(isLight ? 0.14 : 0.28),
-                          blurRadius: 28,
-                          offset: const Offset(0, 16),
-                        ),
-                      ],
-                    ),
-                        child: Padding(
-                      padding: const EdgeInsets.fromLTRB(26, 24, 26, 18),
-                      child: Column(
-                        children: [
-                          const Spacer(),
-                          _SuccessArt(
-                            accentColor: successColor,
-                            iconColor: panelTextColor,
-                          ),
-                          const SizedBox(height: 28),
-                          Text(
-                            'Order Placed',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: successColor,
-                              fontSize: 21,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.1,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Your order has been placed successfully and is now being prepared.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                              height: 1.45,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.12),
-                              ),
-                            ),
-                            child: Text(
-                              'Order ID: #${widget.orderId}',
-                              style: TextStyle(
-                                color: panelTextColor,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const Spacer(),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.popUntil(
-                                  context,
-                                  (route) => route.isFirst,
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: const Color(0xFF111111),
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(vertical: 18),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                              icon: const Icon(
-                                Icons.shopping_cart_checkout_rounded,
-                                size: 20,
-                              ),
-                              label: const Text(
-                                'Continue Shopping',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: FutureBuilder<Map<String, dynamic>>(
+                    future: _orderFuture,
+                    builder: (context, snapshot) {
+                      final status =
+                          (snapshot.data?['status'] ?? '').toString();
+                      final isPendingConfirmation =
+                          widget.confirmationPending ||
+                              _isPaymentConfirmationPending(snapshot.data);
+                      final isFailed = status == 'failed' ||
+                          status == 'cancelled' ||
+                          status == 'refunded';
+                      final title = isPendingConfirmation
+                          ? 'Payment Received'
+                          : isFailed
+                              ? 'Order Needs Review'
+                              : 'Order Placed';
+                      final message = isPendingConfirmation
+                          ? 'Your payment is received. We are confirming the order status and it will update shortly.'
+                          : isFailed
+                              ? 'We found an issue with this order status. Please contact support with this order ID.'
+                              : 'Your order has been placed successfully and is now being prepared.';
+                      final accent = isPendingConfirmation
+                          ? Colors.amberAccent
+                          : isFailed
+                              ? Colors.redAccent
+                              : successColor;
+
+                      return _buildResultPanel(
+                        panelColor: panelColor,
+                        panelTextColor: panelTextColor,
+                        secondaryTextColor: secondaryTextColor,
+                        accentColor: accent,
+                        title: title,
+                        message: message,
+                        status: status,
+                        isLight: isLight,
+                      );
+                    },
                   ),
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  bool _isPaymentConfirmationPending(Map<String, dynamic>? order) {
+    final meta = order?['meta_data'];
+    if (meta is! List) return false;
+    for (final item in meta) {
+      if (item is! Map) continue;
+      final key = (item['key'] ?? '').toString();
+      final value = (item['value'] ?? '').toString();
+      if (key == 'app_payment_confirmation_pending' && value == '1') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Widget _buildResultPanel({
+    required Color panelColor,
+    required Color panelTextColor,
+    required Color secondaryTextColor,
+    required Color accentColor,
+    required String title,
+    required String message,
+    required String status,
+    required bool isLight,
+  }) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: panelColor,
+        borderRadius: BorderRadius.circular(34),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isLight ? 0.14 : 0.28),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(26, 24, 26, 18),
+        child: Column(
+          children: [
+            const Spacer(),
+            _SuccessArt(
+              accentColor: accentColor,
+              iconColor: panelTextColor,
+            ),
+            const SizedBox(height: 28),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: accentColor,
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.1,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 14,
+                height: 1.45,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withOpacity(0.12)),
+              ),
+              child: Text(
+                status.trim().isEmpty
+                    ? 'Order ID: #${widget.orderId}'
+                    : 'Order ID: #${widget.orderId} | ${status.toUpperCase()}',
+                style: TextStyle(
+                  color: panelTextColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Spacer(),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF111111),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20),
+                label: const Text(
+                  'Continue Shopping',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

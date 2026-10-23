@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
@@ -353,6 +354,8 @@ class WooService {
       "best_selling_products_version",
       "home_banner_image_txt_cache",
       "home_banner_image_txt_version",
+      "home_page_slider_txt_cache",
+      "home_page_slider_txt_version",
       "home_banner_video_txt_cache",
       "home_banner_video_txt_version",
     };
@@ -1228,6 +1231,15 @@ class WooService {
           "product_id": item.id,
           "variation_id": item.variationId ?? 0,
           "quantity": item.quantity,
+          if (item.variationAttributes.isNotEmpty)
+            "meta_data": item.variationAttributes.entries
+                .map(
+                  (attribute) => {
+                    "key": attribute.key,
+                    "value": attribute.value,
+                  },
+                )
+                .toList(),
         };
       }).toList();
       final List<Map<String, dynamic>> feeLines = [];
@@ -1346,13 +1358,13 @@ class WooService {
         setPaid = false;
         orderStatus = "pending";
       } else if (paymentType == "partial") {
-        paymentMethod = "payu_partial";
+        paymentMethod = "razorpay";
         paymentTitle = "8% Advance + COD";
         setPaid = false;
         orderStatus = "on-hold";
       } else {
-        paymentMethod = "payu_full";
-        paymentTitle = "Full Payment";
+        paymentMethod = "razorpay";
+        paymentTitle = "Online Payment";
         setPaid = true;
         orderStatus = "processing";
       }
@@ -1441,7 +1453,7 @@ class WooService {
                       ? "phonepe"
                       : (isCashfreeFlow
                           ? "cashfree"
-                          : (isRazorpayFlow ? "razorpay" : "payu"))),
+                          : (isRazorpayFlow ? "razorpay" : "online"))),
             },
             {"key": "order_source", "value": "app"},
             if (installId.isNotEmpty)
@@ -1864,6 +1876,8 @@ class WooService {
             {"key": "cashfree_payment_verified", "value": "1"},
             {"key": "payment_type", "value": "cashfree_full"},
             {"key": "online_gateway", "value": "cashfree"},
+            {"key": "app_payment_received", "value": "1"},
+            {"key": "app_payment_confirmation_pending", "value": "0"},
           ],
         }),
       ).timeout(const Duration(seconds: 25));
@@ -1894,6 +1908,8 @@ class WooService {
             {"key": "payment_type", "value": "cashfree_partial"},
             {"key": "online_gateway", "value": "cashfree"},
             {"key": "partial_payment_received", "value": "1"},
+            {"key": "app_payment_received", "value": "1"},
+            {"key": "app_payment_confirmation_pending", "value": "0"},
           ],
         }),
       ).timeout(const Duration(seconds: 25));
@@ -2024,6 +2040,8 @@ class WooService {
             {"key": "razorpay_payment_verified", "value": "1"},
             {"key": "payment_type", "value": "razorpay_full"},
             {"key": "online_gateway", "value": "razorpay"},
+            {"key": "app_payment_received", "value": "1"},
+            {"key": "app_payment_confirmation_pending", "value": "0"},
           ],
         }),
       ).timeout(const Duration(seconds: 25));
@@ -2057,6 +2075,8 @@ class WooService {
             {"key": "payment_type", "value": "razorpay_partial"},
             {"key": "online_gateway", "value": "razorpay"},
             {"key": "partial_payment_received", "value": "1"},
+            {"key": "app_payment_received", "value": "1"},
+            {"key": "app_payment_confirmation_pending", "value": "0"},
           ],
         }),
       ).timeout(const Duration(seconds: 25));
@@ -2064,6 +2084,57 @@ class WooService {
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
       print("MarkRazorpayPartialOrderPaid Exception: $e");
+      return false;
+    }
+  }
+
+  Future<bool> markPaymentConfirmationPending({
+    required int orderId,
+    required String gateway,
+    required String paymentId,
+    String gatewayOrderId = "",
+    bool isPartialPayment = false,
+  }) async {
+    final normalizedGateway = gateway.trim().toLowerCase();
+    final normalizedPaymentId = paymentId.trim();
+    final normalizedGatewayOrderId = gatewayOrderId.trim();
+    try {
+      final uri = _buildUri("orders/$orderId", {});
+      final metaData = <Map<String, String>>[
+        {
+          "key": "payment_type",
+          "value": "${normalizedGateway}_${isPartialPayment ? "partial" : "full"}",
+        },
+        {"key": "online_gateway", "value": normalizedGateway},
+        {"key": "app_payment_confirmation_pending", "value": "1"},
+        {"key": "app_payment_received", "value": "1"},
+        if (normalizedPaymentId.isNotEmpty)
+          {
+            "key": "${normalizedGateway}_payment_id",
+            "value": normalizedPaymentId,
+          },
+        if (normalizedGatewayOrderId.isNotEmpty)
+          {
+            "key": "${normalizedGateway}_order_id",
+            "value": normalizedGatewayOrderId,
+          },
+        if (isPartialPayment) {"key": "partial_payment_received", "value": "1"},
+      ];
+      final response = await http.put(
+        uri,
+        headers: _wcHeaders(json: true),
+        body: jsonEncode({
+          "set_paid": false,
+          "status": "on-hold",
+          if (normalizedPaymentId.isNotEmpty)
+            "transaction_id": normalizedPaymentId,
+          "meta_data": metaData,
+        }),
+      ).timeout(const Duration(seconds: 25));
+
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      print("MarkPaymentConfirmationPending Exception: $e");
       return false;
     }
   }
@@ -2158,6 +2229,9 @@ class WooService {
             body: jsonEncode({
               "user_id": userId > 0 ? userId : 0,
               "install_id": installId,
+              "platform": defaultTargetPlatform == TargetPlatform.android
+                  ? "android"
+                  : "ios",
               "order_amount": orderAmount.toStringAsFixed(2),
             }),
           )
@@ -2192,6 +2266,9 @@ class WooService {
             body: jsonEncode({
               "user_id": userId > 0 ? userId : 0,
               "install_id": installId,
+              "platform": defaultTargetPlatform == TargetPlatform.android
+                  ? "android"
+                  : "ios",
               "order_amount": orderAmount.toStringAsFixed(2),
             }),
           )
@@ -2609,7 +2686,7 @@ class WooService {
     if (inStockRaw is bool) return inStockRaw;
 
     final status = (product["stock_status"] ?? "").toString().toLowerCase();
-    return status.isEmpty || status == "instock" || status == "onbackorder";
+    return status.isEmpty || status == "instock";
   }
 
   String _generateTempPassword([int length = 12]) {

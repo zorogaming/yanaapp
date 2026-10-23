@@ -50,9 +50,10 @@ class AppThemePalette extends ThemeExtension<AppThemePalette> {
   final Color heroStart;
   final Color heroEnd;
   final Color success;
-  
+
   bool get isLight => background.computeLuminance() > 0.5;
-  Color get onAccent => accent.computeLuminance() > 0.45 ? Colors.black : Colors.white;
+  Color get onAccent =>
+      accent.computeLuminance() > 0.45 ? Colors.black : Colors.white;
 
   @override
   AppThemePalette copyWith({
@@ -151,9 +152,9 @@ class AppThemes {
     surface: Color(0xFF141414),
     surfaceStrong: Color(0xFF1C1C1C),
     surfaceSoft: Color(0xFF232323),
-    accent: Color(0xFFD7FC70),
-    accentStrong: Color(0xFFC5F45A),
-    highlight: Color(0xFFD7FC70),
+    accent: Color(0xFFC1FF28),
+    accentStrong: Color(0xFFAAEB18),
+    highlight: Color(0xFFD8FF78),
     textPrimary: Colors.white,
     textMuted: Color(0xFF9A9A9A),
     border: Color(0x26FFFFFF),
@@ -426,24 +427,27 @@ class AppThemes {
       AppThemeMode.rosePink => Brightness.light,
       _ => Brightness.dark,
     };
-    final scheme = ColorScheme.fromSeed(
-      seedColor: palette.accent,
-      brightness: brightness,
-      surface: palette.surface,
-    ).copyWith(
-      primary: palette.accent,
-      onPrimary: palette.onAccent,
-      secondary: palette.highlight,
-      onSecondary:
-          palette.highlight.computeLuminance() > 0.45 ? Colors.black : Colors.white,
-      tertiary: palette.accentStrong,
-      onTertiary:
-          palette.accentStrong.computeLuminance() > 0.45 ? Colors.black : Colors.white,
-      outline: palette.border,
-      surface: palette.surface,
-      onSurface: palette.textPrimary,
-      onSurfaceVariant: palette.textMuted,
-    );
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: palette.accent,
+          brightness: brightness,
+          surface: palette.surface,
+        ).copyWith(
+          primary: palette.accent,
+          onPrimary: palette.onAccent,
+          secondary: palette.highlight,
+          onSecondary: palette.highlight.computeLuminance() > 0.45
+              ? Colors.black
+              : Colors.white,
+          tertiary: palette.accentStrong,
+          onTertiary: palette.accentStrong.computeLuminance() > 0.45
+              ? Colors.black
+              : Colors.white,
+          outline: palette.border,
+          surface: palette.surface,
+          onSurface: palette.textPrimary,
+          onSurfaceVariant: palette.textMuted,
+        );
 
     return ThemeData(
       useMaterial3: true,
@@ -481,14 +485,8 @@ class AppThemes {
           color: palette.textPrimary,
           fontWeight: FontWeight.w600,
         ),
-        bodyLarge: TextStyle(
-          color: palette.textPrimary,
-          fontSize: 15,
-        ),
-        bodyMedium: TextStyle(
-          color: palette.textMuted,
-          fontSize: 14,
-        ),
+        bodyLarge: TextStyle(color: palette.textPrimary, fontSize: 15),
+        bodyMedium: TextStyle(color: palette.textMuted, fontSize: 14),
       ),
       cardTheme: CardThemeData(
         color: palette.surface,

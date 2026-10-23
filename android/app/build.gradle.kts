@@ -77,6 +77,10 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
+    // Keep the precompiled native shared-counter library on the latest stable
+    // DataStore release for Android 16 KB page-size compatibility.
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
+
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-messaging")

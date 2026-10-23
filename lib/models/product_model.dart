@@ -55,7 +55,7 @@ class Product {
     final isInStock = parsedInStock ??
         (stockStatus.isEmpty
             ? true
-            : stockStatus == "instock" || stockStatus == "onbackorder");
+            : stockStatus == "instock");
 
     final effectivePrice =
         json['price']?.toString().trim().isNotEmpty == true

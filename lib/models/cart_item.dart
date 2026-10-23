@@ -5,6 +5,7 @@ class CartItem {
   final double price;
   int quantity;
   final int? variationId;
+  final Map<String, String> variationAttributes;
 
   CartItem({
     required this.id,
@@ -13,6 +14,7 @@ class CartItem {
     required this.price,
     this.quantity = 1,
     this.variationId,
+    this.variationAttributes = const {},
   });
 
   Map<String, dynamic> toJson() {
@@ -23,6 +25,7 @@ class CartItem {
       "price": price,
       "quantity": quantity,
       "variation_id": variationId,
+      "variation_attributes": variationAttributes,
     };
   }
 
@@ -33,7 +36,17 @@ class CartItem {
       image: json["image"],
       price: (json["price"] as num).toDouble(),
       quantity: json["quantity"],
-      variationId: json["variation_id"],
+      variationId: (json["variation_id"] as num?)?.toInt(),
+      variationAttributes: _parseVariationAttributes(
+        json["variation_attributes"],
+      ),
+    );
+  }
+
+  static Map<String, String> _parseVariationAttributes(dynamic raw) {
+    if (raw is! Map) return const {};
+    return raw.map(
+      (key, value) => MapEntry(key.toString(), value.toString()),
     );
   }
 }

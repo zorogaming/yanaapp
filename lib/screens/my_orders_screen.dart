@@ -21,7 +21,8 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   }
 
   // ✅ Order Status ke hisaab se color return karne ke liye helper function
-  Color _getStatusColor(String status) {
+  Color _getStatusColor(String status, {bool confirmationPending = false}) {
+    if (confirmationPending) return Colors.amber.shade800;
     switch (status.toLowerCase()) {
       case 'processing':
         return Colors.orange;
@@ -34,6 +35,27 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
       default:
         return Colors.grey;
     }
+  }
+
+  bool _isPaymentConfirmationPending(Map order) {
+    final meta = order['meta_data'];
+    if (meta is! List) return false;
+    for (final item in meta) {
+      if (item is! Map) continue;
+      final key = (item['key'] ?? '').toString();
+      final value = (item['value'] ?? '').toString();
+      if (key == 'app_payment_confirmation_pending' && value == '1') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _statusLabel(String status, {bool confirmationPending = false}) {
+    if (confirmationPending) {
+      return 'PAYMENT RECEIVED, CONFIRMATION PENDING';
+    }
+    return status.toUpperCase();
   }
 
   @override
@@ -71,6 +93,12 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
             itemBuilder: (context, index) {
               final order = orders[index];
               String status = order['status'] ?? 'unknown';
+              final confirmationPending =
+                  order is Map && _isPaymentConfirmationPending(order);
+              final statusColor = _getStatusColor(
+                status,
+                confirmationPending: confirmationPending,
+              );
 
               // ✅ Adjusted Card Styling
               return Card(
@@ -93,19 +121,27 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(status).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              status.toUpperCase(),
-                              style: TextStyle(
-                                color: _getStatusColor(status),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: statusColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                _statusLabel(
+                                  status,
+                                  confirmationPending: confirmationPending,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                           ),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../services/auth_service.dart';
 import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
+import 'login_screen.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
@@ -16,6 +18,7 @@ class _WalletScreenState extends State<WalletScreen> {
   String _error = "";
   double _balance = 0;
   bool _banned = false;
+  bool _loggedIn = false;
   double _minBilling = 2000;
   List<Map<String, dynamic>> _tx = const [];
 
@@ -34,6 +37,7 @@ class _WalletScreenState extends State<WalletScreen> {
       _error = "";
     });
 
+    final userId = (await AuthService().getUserId() ?? '').trim();
     final data = await _api.fetchWalletOverview();
     if (!mounted) return;
 
@@ -48,6 +52,7 @@ class _WalletScreenState extends State<WalletScreen> {
     final txRaw = (data["transactions"] as List?) ?? const [];
     setState(() {
       _loading = false;
+      _loggedIn = userId.isNotEmpty;
       _balance = double.tryParse((data["balance"] ?? "0").toString()) ?? 0;
       _banned = data["banned"] == true;
       _minBilling =
@@ -62,6 +67,7 @@ class _WalletScreenState extends State<WalletScreen> {
   String _txTitle(Map<String, dynamic> tx) {
     final source = (tx["source"] ?? "").toString();
     if (source == "install_bonus") return "Install Bonus";
+    if (source == "signup_bonus") return "Welcome Bonus";
     if (source == "admin_credit") return "Admin Credit";
     if (source == "wallet_usage") return "Wallet Used in Order";
     return source.isEmpty ? "Wallet Update" : source.replaceAll("_", " ");
@@ -96,6 +102,10 @@ class _WalletScreenState extends State<WalletScreen> {
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
                   children: [
                     _balanceCard(palette),
+                    if (!_loggedIn) ...[
+                      const SizedBox(height: 12),
+                      _loginBonusCard(palette),
+                    ],
                     const SizedBox(height: 14),
                     Text(
                       "Wallet History",
@@ -115,6 +125,49 @@ class _WalletScreenState extends State<WalletScreen> {
                       ..._tx.map((tx) => _transactionTile(tx, palette)),
                   ],
                 ),
+    );
+  }
+
+  Widget _loginBonusCard(AppThemePalette palette) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: palette.accent.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: palette.accent.withOpacity(0.30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Log in and get ₹200 in your wallet!',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'New customers receive a one-time ₹200 welcome bonus after logging in.',
+            style: TextStyle(color: palette.textMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+                if (mounted) await _load();
+              },
+              child: const Text('Log In & Get ₹200'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import 'forgot_password_screen.dart';
 import '../theme/app_theme.dart';
 import 'main_navigation.dart';
+import 'signup_screen.dart';
 
 // 🎨 Brand Colors
 class RacingColors {
@@ -209,6 +210,13 @@ class _LoginScreenState extends State<LoginScreen> {
     await Navigator.pushNamed(context, ForgotPasswordScreen.routeName);
   }
 
+  Future<void> openSignup() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SignupScreen()),
+    );
+  }
+
   InputDecoration _buildInputDecoration(
     String label,
     IconData icon,
@@ -399,6 +407,25 @@ class _LoginScreenState extends State<LoginScreen> {
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: palette.textPrimary,
+                        side: BorderSide(color: palette.border),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                      onPressed: isLoading ? null : openSignup,
+                      child: const Text(
+                        "Create Account",
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
                   ],
                 ),

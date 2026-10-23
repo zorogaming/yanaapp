@@ -955,8 +955,9 @@ final class Yana_App_Event_Automation {
         }
         $userId = absint((int) ($body['user_id'] ?? 0));
         $installId = sanitize_text_field((string) ($body['install_id'] ?? ''));
+        $platform = strtolower(sanitize_text_field((string) ($body['platform'] ?? '')));
         $orderAmount = max(0, round((float) ($body['order_amount'] ?? 0), 2));
-        $wallet = self::ensure_wallet_account($userId, $installId);
+        $wallet = self::ensure_wallet_account($userId, $installId, $platform === 'android');
         if ($wallet === null) {
             return new WP_REST_Response([
                 'ok' => false,
@@ -1003,8 +1004,9 @@ final class Yana_App_Event_Automation {
         }
         $userId = absint((int) ($body['user_id'] ?? 0));
         $installId = sanitize_text_field((string) ($body['install_id'] ?? ''));
+        $platform = strtolower(sanitize_text_field((string) ($body['platform'] ?? '')));
         $orderAmount = max(0, round((float) ($body['order_amount'] ?? 0), 2));
-        $wallet = self::ensure_wallet_account($userId, $installId);
+        $wallet = self::ensure_wallet_account($userId, $installId, $platform === 'android');
         if ($wallet === null) {
             return new WP_REST_Response([
                 'ok' => false,
@@ -2537,11 +2539,27 @@ final class Yana_App_Event_Automation {
         ];
     }
 
-    private static function ensure_wallet_account(int $userId, string $installId): ?array {
+    private static function ensure_wallet_account(int $userId, string $installId, bool $loginBonusOnly = false): ?array {
         global $wpdb;
         self::ensure_wallet_tables();
         $userId = absint($userId);
         $installId = sanitize_text_field($installId);
+        if ($loginBonusOnly && $userId <= 0) {
+            return [
+                'id' => 0,
+                'user_id' => 0,
+                'install_id' => $installId,
+                'actor_key' => '',
+                'balance' => 0.0,
+                'banned' => false,
+                'bonus_granted' => false,
+                'is_merged' => false,
+                'merged_to_actor' => '',
+                'linked_from_install' => false,
+                'created_at' => '',
+                'updated_at' => '',
+            ];
+        }
         if ($userId > 0) {
             $userActorKey = self::actor_key($userId, '');
             if ($userActorKey === '') {
@@ -2549,13 +2567,15 @@ final class Yana_App_Event_Automation {
             }
             $userWallet = self::wallet_find_by_actor($userActorKey);
             if ($userWallet === null) {
-                $userWallet = self::wallet_create_account($userId, '', 0.0, false);
+                $userWallet = $loginBonusOnly
+                    ? self::wallet_create_account($userId, '', null, true, 'signup_bonus')
+                    : self::wallet_create_account($userId, '', 0.0, false);
             }
             if ($userWallet === null) {
                 return null;
             }
             $linkedFromInstall = false;
-            if ($installId !== '') {
+            if (!$loginBonusOnly && $installId !== '') {
                 $guestActorKey = self::actor_key(0, $installId);
                 $guestWallet = self::wallet_find_by_actor($guestActorKey);
                 if ($guestWallet !== null) {
@@ -2590,7 +2610,7 @@ final class Yana_App_Event_Automation {
         return $created;
     }
 
-    private static function wallet_create_account(int $userId, string $installId, ?float $initialBonus = null, bool $withInstallBonusLog = true): ?array {
+    private static function wallet_create_account(int $userId, string $installId, ?float $initialBonus = null, bool $withInstallBonusLog = true, string $bonusSource = 'install_bonus'): ?array {
         global $wpdb;
         $table = $wpdb->prefix . self::WALLETS;
         if (!self::table_exists($table)) {
@@ -2623,7 +2643,7 @@ final class Yana_App_Event_Automation {
                 'credit',
                 $bonus,
                 $bonus,
-                'install_bonus',
+                $bonusSource,
                 ['user_id' => $userId, 'install_id' => $installId]
             );
         }

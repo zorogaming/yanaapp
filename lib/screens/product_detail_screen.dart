@@ -999,6 +999,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
 
                       return DropdownMenuItem<Map>(
                         value: variation,
+                        enabled: variationInStock,
                         child: Text(label),
                       );
                     }).toList(),
@@ -2017,6 +2018,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
     }
 
     final finalPrice = _selectedCurrentPrice();
+    final variationAttributes = <String, String>{};
+    final rawAttributes = selectedVariation?["attributes"];
+    if (rawAttributes is List) {
+      for (final rawAttribute in rawAttributes) {
+        if (rawAttribute is! Map) continue;
+        final name = (rawAttribute["name"] ?? "").toString().trim();
+        final option = (rawAttribute["option"] ?? "").toString().trim();
+        if (name.isNotEmpty && option.isNotEmpty) {
+          variationAttributes[name] = option;
+        }
+      }
+    }
 
     cart.addToCart(
       CartItem(
@@ -2028,6 +2041,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
             : (productImages.isNotEmpty ? productImages.first : ""),
         price: finalPrice,
         quantity: quantity,
+        variationAttributes: variationAttributes,
       ),
     );
 
@@ -2495,8 +2509,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
       return inStockRaw;
     }
 
-    return variationStockStatus == "instock" ||
-        variationStockStatus == "onbackorder";
+    return variationStockStatus == "instock";
   }
 
   String _currentStockLabel() {

@@ -12,8 +12,11 @@ pluginManagement {
 
     repositories {
         google()
-        mavenCentral()
         gradlePluginPortal()
+        mavenCentral()
+        maven {
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
     }
 }
 

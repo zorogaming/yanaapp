@@ -6,8 +6,26 @@ plugins {
 
 allprojects {
     repositories {
+        clear()
         google()
         mavenCentral()
+        maven {
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
+    }
+}
+
+subprojects {
+    buildscript {
+        repositories {
+            clear()
+            google()
+            gradlePluginPortal()
+            mavenCentral()
+            maven {
+                url = uri("https://maven.aliyun.com/repository/google")
+            }
+        }
     }
 }
 
