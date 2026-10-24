@@ -361,7 +361,9 @@ class WooService {
     };
 
     for (final key in prefs.getKeys()) {
-      if (key.startsWith("category_")) {
+      if (key.startsWith("category_") ||
+          key.startsWith("sale_collection_") ||
+          key.startsWith("sale_collection_version_")) {
         keysToRemove.add(key);
       }
     }
@@ -2356,6 +2358,7 @@ class WooService {
     required String collectionKey,
     int page = 1,
     int perPage = 20,
+    bool statusOnly = false,
   }) async {
     final normalizedKey = collectionKey.trim().toLowerCase();
     if (normalizedKey.isEmpty) {
@@ -2364,15 +2367,27 @@ class WooService {
 
     try {
       final uri = _buildWpV1Uri(
-        "sale-collection?type=$normalizedKey&page=$page&per_page=$perPage",
+        "sale-collection?type=$normalizedKey&page=$page&per_page=$perPage${statusOnly ? '&status_only=1' : ''}",
       );
-      final response = await http
-          .get(uri, headers: _wcHeaders())
+      // Public endpoint: identify the app explicitly. MalCare can reject the
+      // generic Dart client identifier before the WordPress route is reached.
+      const headers = {
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+        'User-Agent': 'YanaWorldwide/1.0 (Android; Flutter)',
+      };
+      var response = await http
+          .get(uri, headers: headers)
           .timeout(const Duration(seconds: 20));
+      if (response.statusCode == 403 && uri.host.startsWith('www.')) {
+        response = await http
+            .get(uri.replace(host: uri.host.substring(4)), headers: headers)
+            .timeout(const Duration(seconds: 20));
+      }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw Exception(
-          "Sale collection endpoint failed with status ${response.statusCode}",
+          "Sale collection endpoint failed with status ${response.statusCode}${response.body.contains('MalCare') ? ' (blocked by MalCare firewall)' : ''}",
         );
       }
 

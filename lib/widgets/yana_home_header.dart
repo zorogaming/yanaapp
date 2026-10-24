@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 const _lime = Color(0xFFB6F21E);
 
 Widget buildYanaHeader({
@@ -13,6 +15,9 @@ Widget buildYanaHeader({
   Key? cartBoxKey,
   Widget? cartIcon,
 }) {
+  final palette = context.appPalette;
+  final isLightTheme = palette.isLight;
+
   return Container(
     height: 68,
     padding: const EdgeInsets.only(right: 10),
@@ -27,6 +32,8 @@ Widget buildYanaHeader({
           width: 150,
           height: 52,
           fit: BoxFit.contain,
+          color: isLightTheme ? const Color(0xFF11130E) : null,
+          colorBlendMode: BlendMode.srcIn,
         ),
         const SizedBox(width: 6),
         Expanded(
@@ -38,12 +45,12 @@ Widget buildYanaHeader({
               children: [
                 _IconBox(
                   onTap: onWalletTap,
-                  color: _lime,
-                  borderColor: const Color(0x73B6F21E),
+                  color: palette.accent,
+                  borderColor: palette.accent.withOpacity(0.45),
                   glow: true,
-                  child: const Icon(
+                  child: Icon(
                     Icons.account_balance_wallet_outlined,
-                    color: _lime,
+                    color: isLightTheme ? palette.textPrimary : palette.accent,
                     size: 19,
                   ),
                 ),
@@ -54,14 +61,14 @@ Widget buildYanaHeader({
                   _TextAction(
                     label: 'Login',
                     icon: Icons.person_outline_rounded,
-                    color: Colors.white,
+                    color: palette.textPrimary,
                     onTap: onLoginTap,
                   ),
-                  Container(width: 1, height: 14, color: Colors.white38),
+                  Container(width: 1, height: 14, color: palette.border),
                   _TextAction(
                     label: 'Signup',
                     icon: Icons.person_add_alt_1_outlined,
-                    color: _lime,
+                    color: isLightTheme ? palette.accentStrong : palette.accent,
                     bold: true,
                     onTap: onSignupTap,
                   ),
@@ -73,13 +80,13 @@ Widget buildYanaHeader({
                     _IconBox(
                       boxKey: cartBoxKey,
                       onTap: onCartTap,
-                      color: Colors.white,
-                      borderColor: const Color(0xFF2C3A1A),
+                      color: palette.surface,
+                      borderColor: palette.border,
                       child:
                           cartIcon ??
-                          const Icon(
+                          Icon(
                             Icons.shopping_cart,
-                            color: Colors.white,
+                            color: palette.textPrimary,
                             size: 19,
                           ),
                     ),

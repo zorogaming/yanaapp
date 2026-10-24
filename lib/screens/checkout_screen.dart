@@ -4186,6 +4186,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   color: palette.surfaceStrong,
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(color: palette.border),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: palette.accent.withOpacity(
+                                        palette.isLight ? 0.16 : 0.08,
+                                      ),
+                                      blurRadius: 9,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
                                 ),
                                 child: Row(
                                   children: [
@@ -4195,7 +4204,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                           Text(
                                             "Total Amount",
                                             style: TextStyle(
-                                              color: palette.accent,
+                                              color: palette.isLight
+                                                  ? palette.accentStrong
+                                                  : palette.accent,
                                               fontSize: 16,
                                               fontWeight: FontWeight.w800,
                                             ),
@@ -4203,7 +4214,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                           const SizedBox(width: 4),
                                           Icon(
                                             Icons.keyboard_arrow_down_rounded,
-                                            color: palette.accent,
+                                            color: palette.isLight
+                                                ? palette.accentStrong
+                                                : palette.accent,
                                             size: 20,
                                           ),
                                         ],
@@ -4212,7 +4225,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                     Text(
                                       "\u20B9${finalAmount.toStringAsFixed(0)}",
                                       style: TextStyle(
-                                        color: palette.accent,
+                                        color: palette.isLight
+                                            ? palette.accentStrong
+                                            : palette.accent,
                                         fontSize: 21,
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -4702,7 +4717,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                     palette.highlight.computeLuminance() > 0.45
                                     ? Colors.black
                                     : Colors.white,
-                                elevation: 0,
+                                elevation: 3,
+                                shadowColor: palette.highlight.withOpacity(0.5),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(6),
                                 ),

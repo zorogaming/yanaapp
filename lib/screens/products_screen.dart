@@ -812,6 +812,9 @@ class ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
+    final accentTextColor = palette.isLight
+        ? const Color(0xFF527500)
+        : palette.accentStrong;
     final isOutOfStock = !product.isInStock;
     final displaySku = product.sku.trim();
     final description = _stripHtml(product.shortDescription);
@@ -879,6 +882,49 @@ class ProductCard extends StatelessWidget {
                                     fontSize: 8,
                                     fontWeight: FontWeight.w900,
                                   ),
+                                ),
+                              ),
+                            ),
+                          if (product.saleBadgeLabel?.trim().isNotEmpty == true)
+                            Positioned(
+                              left: 5,
+                              right: 5,
+                              bottom: 5,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xE61B160C),
+                                  borderRadius: BorderRadius.circular(7),
+                                  border: Border.all(
+                                    color: const Color(0xFFF2C25A),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.local_fire_department_rounded,
+                                      size: 12,
+                                      color: Color(0xFFF2C25A),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Expanded(
+                                      child: Text(
+                                        product.saleBadgeLabel!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1100,7 +1146,7 @@ class ProductCard extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: palette.accentStrong,
+                                  color: accentTextColor,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w900,
                                   fontStyle: FontStyle.italic,
@@ -1163,7 +1209,7 @@ class ProductCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: palette.accentStrong,
+                              color: accentTextColor,
                               fontSize: 14,
                               fontWeight: FontWeight.w900,
                             ),
@@ -1174,7 +1220,7 @@ class ProductCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: palette.accentStrong,
+                              color: accentTextColor,
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                             ),
@@ -1366,7 +1412,9 @@ class ProductCard extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: palette.accentStrong,
+          color: palette.isLight
+              ? const Color(0xFF527500)
+              : palette.accentStrong,
           fontSize: 11.5,
           fontWeight: FontWeight.w900,
         ),

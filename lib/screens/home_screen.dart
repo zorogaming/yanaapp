@@ -33,6 +33,7 @@ import 'riding_groups_screen.dart';
 import 'search_result_screen.dart';
 import 'wallet_screen.dart';
 import '../services/data_manager.dart';
+import '../services/category_image_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'bike_garage_screen.dart';
 import 'motorcycle_service_station_screen.dart';
@@ -460,7 +461,13 @@ class _HomeScreenState extends State<HomeScreen>
   bool _homePopupDialogShown = false;
   bool _themeChooserShown = false;
   bool _dailySaleEnabled = true;
-  bool _bigDaysSaleEnabled = true;
+  bool _bigDaysSaleEnabled = false;
+  String _bigDaysSaleLabel = 'Big Days Sale';
+  String _bigDaysFestivalKey = '';
+  String? _upcomingSaleMessage;
+  Timer? _saleStatusTimer;
+  Timer? _saleTransitionTimer;
+  bool _saleStatusLoading = false;
   bool _quickAccessExpanded = false;
   bool _shopByBikeIntroRunning = false;
   bool _shopByBikeIntroTopActive = false;
@@ -548,6 +555,12 @@ class _HomeScreenState extends State<HomeScreen>
     Future<void>.delayed(const Duration(milliseconds: 420), () {
       if (!mounted) return;
       _loadSaleAvailability();
+      _saleStatusTimer ??= Timer.periodic(const Duration(minutes: 1), (_) {
+        if (WidgetsBinding.instance.lifecycleState ==
+            AppLifecycleState.resumed) {
+          _loadSaleAvailability();
+        }
+      });
       _loadRecentlyViewedProducts();
     });
 
@@ -617,6 +630,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _loadSaleAvailability();
       _refreshInternetStatus();
       _loadRecentlyViewedProducts();
     }
@@ -828,24 +842,137 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _loadSaleAvailability() async {
+    if (_saleStatusLoading || !mounted) return;
+    _saleStatusLoading = true;
     try {
       final payloads = await Future.wait<Map<String, dynamic>>([
-        dataManager.getSaleCollection("daily_sale", preferCache: true),
-        dataManager.getSaleCollection("big_days_sale", preferCache: true),
+        WooService()
+            .fetchSaleCollection(
+              collectionKey: 'daily_sale',
+              statusOnly: true,
+              perPage: 1,
+            )
+            .catchError((_) => <String, dynamic>{}),
+        WooService()
+            .fetchSaleCollection(
+              collectionKey: 'big_days_sale',
+              statusOnly: true,
+              perPage: 1,
+            )
+            .catchError((_) => <String, dynamic>{}),
       ]);
       if (!mounted) return;
       setState(() {
-        _dailySaleEnabled = payloads[0]["enabled"] != false;
-        _bigDaysSaleEnabled = payloads[1]["enabled"] != false;
+        if (payloads[0]['enabled'] is bool) {
+          _dailySaleEnabled = payloads[0]['enabled'] == true;
+        }
+        if (payloads[1]['enabled'] is bool) {
+          _bigDaysSaleEnabled = payloads[1]['enabled'] == true;
+          final responseLabel = (payloads[1]['label'] ?? '').toString().trim();
+          _bigDaysFestivalKey = _normalizeFestivalKey(
+            (payloads[1]['festival_key'] ?? '').toString(),
+          );
+          _bigDaysSaleLabel =
+              responseLabel.isNotEmpty &&
+                  responseLabel.toLowerCase() != 'big days sale'
+              ? responseLabel
+              : _festivalSaleLabel(_bigDaysFestivalKey) ?? 'Big Days Sale';
+          final upcomingStart = DateTime.tryParse(
+            '${payloads[1]['upcoming_starts_at']}',
+          );
+          final upcomingEnd = DateTime.tryParse(
+            '${payloads[1]['upcoming_ends_at']}',
+          );
+          final upcomingLabel = (payloads[1]['upcoming_label'] ?? '')
+              .toString()
+              .trim();
+          final upcomingKey = _normalizeFestivalKey(
+            (payloads[1]['upcoming_festival_key'] ?? '').toString(),
+          );
+          final upcomingName = upcomingLabel.isNotEmpty
+              ? upcomingLabel
+              : _festivalSaleLabel(upcomingKey);
+          final daysUntilStart =
+              upcomingStart == null || payloads[1]['server_now'] == null
+              ? null
+              : upcomingStart
+                    .difference(DateTime.parse('${payloads[1]['server_now']}'))
+                    .inDays;
+          _upcomingSaleMessage =
+              upcomingStart != null &&
+                  upcomingEnd != null &&
+                  upcomingName != null &&
+                  daysUntilStart != null &&
+                  daysUntilStart >= 0 &&
+                  daysUntilStart <= 15 &&
+                  DateTime.parse(
+                    '${payloads[1]['server_now']}',
+                  ).isBefore(upcomingEnd)
+              ? '$upcomingName starts ${_formatSaleDate(upcomingStart)}'
+              : null;
+        }
       });
+      if (payloads[1]['enabled'] is! bool) return;
+      _saleTransitionTimer?.cancel();
+      final serverNow = DateTime.tryParse('${payloads[1]['server_now']}');
+      final transition = DateTime.tryParse(
+        '${payloads[1]['next_transition_at']}',
+      );
+      if (serverNow != null && transition != null) {
+        final delay = transition.difference(serverNow);
+        _saleTransitionTimer = Timer(
+          delay.isNegative ? Duration.zero : delay,
+          () {
+            if (!mounted) return;
+            setState(() => _bigDaysSaleEnabled = false);
+            _loadSaleAvailability();
+          },
+        );
+      }
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _dailySaleEnabled = true;
-        _bigDaysSaleEnabled = true;
-      });
+      // Keep the last server-confirmed state; a failed refresh must not
+      // reactivate a festival after its scheduled end.
+    } finally {
+      _saleStatusLoading = false;
     }
   }
+
+  String _normalizeFestivalKey(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      .replaceAll(RegExp(r'^_+|_+$'), '');
+
+  String? _festivalSaleLabel(String key) {
+    const labels = <String, String>{
+      'sankranti': 'Sankranti Sale',
+      'republic_day': 'Republic Day Sale',
+      'shivratri': 'Maha Shivratri Sale',
+      'holi': 'Holi Sale',
+      'ugadi': 'Ugadi Sale',
+      'eid_fitr': 'Eid Sale',
+      'baisakhi': 'Baisakhi Sale',
+      'akshaya_tritiya': 'Akshaya Tritiya Sale',
+      'eid_adha': 'Eid Sale',
+      'rakhi': 'Rakhi Sale',
+      'independence_day': 'Independence Day Sale',
+      'janmashtami': 'Janmashtami Sale',
+      'ganesh': 'Ganesh Utsav Sale',
+      'onam': 'Onam Sale',
+      'navratri': 'Navratri Sale',
+      'dussehra': 'Dussehra Sale',
+      'dhanteras': 'Dhanteras Sale',
+      'diwali': 'Diwali Sale',
+      'chhath': 'Chhath Puja Sale',
+      'gurpurab': 'Gurpurab Sale',
+      'christmas': 'Christmas Sale',
+      'new_year': 'New Year Sale',
+    };
+    return labels[key];
+  }
+
+  String _formatSaleDate(DateTime date) =>
+      '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
 
   Future<void> _checkForHomePopup() async {
     if (!mounted || _homePopupDialogShown || _hasCheckedHomePopupThisSession) {
@@ -2276,10 +2403,6 @@ class _HomeScreenState extends State<HomeScreen>
     return null;
   }
 
-  String _normalizeCategoryName(String value) {
-    return value.toLowerCase().replaceAll(RegExp(r"[^a-z0-9]+"), " ").trim();
-  }
-
   bool _opensTopCategoryDetailPage(String key) {
     return const {
       "motorcycle_accessories",
@@ -2427,7 +2550,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildSelectMotorcycleHeading() {
-    final accent = context.appPalette.accent;
+    final palette = context.appPalette;
+    final accent = palette.accent;
     final title = RichText(
       maxLines: 1,
       textAlign: TextAlign.center,
@@ -2438,9 +2562,9 @@ class _HomeScreenState extends State<HomeScreen>
           letterSpacing: 0.55,
         ),
         children: [
-          const TextSpan(
+          TextSpan(
             text: 'SELECT YOUR ',
-            style: TextStyle(color: Colors.white),
+            style: TextStyle(color: palette.textPrimary),
           ),
           TextSpan(
             text: 'MOTORCYCLE',
@@ -2499,8 +2623,10 @@ class _HomeScreenState extends State<HomeScreen>
       child: SizedBox(
         height: navHeight,
         child: Stack(
+          clipBehavior: Clip.none,
           children: [
             ListView.separated(
+              clipBehavior: Clip.none,
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 3),
               itemCount: items.length,
@@ -2556,30 +2682,35 @@ class _HomeScreenState extends State<HomeScreen>
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       gradient: showGlow
-                                          ? const LinearGradient(
+                                          ? LinearGradient(
                                               begin: Alignment.topLeft,
                                               end: Alignment.bottomRight,
                                               colors: [
-                                                Color(0xFFFF3B30),
-                                                Color(0xFFFF9500),
+                                                palette.accentStrong,
+                                                palette.accent,
                                               ],
                                             )
                                           : null,
                                       border: showGlow
                                           ? null
                                           : Border.all(
-                                              color: Colors.white.withOpacity(
-                                                0.34,
-                                              ),
+                                              color: palette.isLight
+                                                  ? palette.border
+                                                  : Colors.white.withOpacity(
+                                                      0.34,
+                                                    ),
                                               width: 0.8,
                                             ),
                                       boxShadow: showGlow
                                           ? [
                                               BoxShadow(
-                                                color: const Color(
-                                                  0xFFFF3B30,
-                                                ).withOpacity(0.58),
-                                                blurRadius: 14,
+                                                color: palette.accentStrong
+                                                    .withOpacity(
+                                                      palette.isLight
+                                                          ? 0.34
+                                                          : 0.58,
+                                                    ),
+                                                blurRadius: 16,
                                                 spreadRadius: 1,
                                               ),
                                             ]
@@ -2688,7 +2819,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildHomeCategoryGroups(
     Map<String, List> groupedCategories,
-    List<dynamic> topBrandCategories,
     String imageVersion,
   ) {
     final groups = groupedCategories.entries
@@ -2716,22 +2846,6 @@ class _HomeScreenState extends State<HomeScreen>
                         .whereType<Map>()
                         .map((item) => Map<String, dynamic>.from(item))
                         .toList();
-                    var fallbackImageUrl = "";
-                    final normalizedTitle = _normalizeCategoryName(group.key);
-                    for (final raw in topBrandCategories) {
-                      if (raw is! Map) continue;
-                      final brand = Map<String, dynamic>.from(raw);
-                      if (_normalizeCategoryName(
-                            (brand["name"] ?? "").toString(),
-                          ) ==
-                          normalizedTitle) {
-                        fallbackImageUrl = _homeCategoryImageUrl(brand);
-                        break;
-                      }
-                    }
-                    if (fallbackImageUrl.isEmpty && children.isNotEmpty) {
-                      fallbackImageUrl = _homeCategoryImageUrl(children.first);
-                    }
                     return SizedBox(
                       width: cardWidth,
                       child: _buildHomeBikeGridCard(
@@ -2739,8 +2853,8 @@ class _HomeScreenState extends State<HomeScreen>
                         imageUrl: _homeCategoryFolderImageUrl(
                           group.key,
                           imageVersion,
+                          lightTheme: context.appPalette.isLight,
                         ),
-                        fallbackImageUrl: fallbackImageUrl,
                         height: cardHeight.toDouble(),
                         showGreenStripe: false,
                         showNeonBorder: false,
@@ -2782,15 +2896,16 @@ class _HomeScreenState extends State<HomeScreen>
               );
             }
 
+            final palette = pageContext.appPalette;
             return Scaffold(
-              backgroundColor: const Color(0xFF080A08),
+              backgroundColor: palette.background,
               body: SafeArea(
                 child: Column(
                   children: [
                     _buildInnerCategoryPageHeader(pageContext),
                     Expanded(
                       child: ColoredBox(
-                        color: const Color(0xFF080A08),
+                        color: palette.background,
                         child: Column(
                           children: [
                             Padding(
@@ -2802,8 +2917,8 @@ class _HomeScreenState extends State<HomeScreen>
                                       title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                      style: TextStyle(
+                                        color: palette.textPrimary,
                                         fontSize: 17,
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -2811,8 +2926,8 @@ class _HomeScreenState extends State<HomeScreen>
                                   ),
                                   Text(
                                     "${categories.length} categories",
-                                    style: const TextStyle(
-                                      color: Color(0xFFAAAAAA),
+                                    style: TextStyle(
+                                      color: palette.textMuted,
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -2924,10 +3039,10 @@ class _HomeScreenState extends State<HomeScreen>
     final palette = pageContext.appPalette;
     final searchDecoration = InputDecoration(
       hintText: "Search parts, bikes, brands, SKU...",
-      hintStyle: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 12.5),
-      prefixIcon: const Icon(
+      hintStyle: TextStyle(color: palette.textMuted, fontSize: 12.5),
+      prefixIcon: Icon(
         Icons.search_rounded,
-        color: Color(0xFFB6F21E),
+        color: palette.isLight ? palette.accentStrong : palette.accent,
         size: 23,
       ),
       prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 40),
@@ -2944,9 +3059,11 @@ class _HomeScreenState extends State<HomeScreen>
                 tooltip: "Barcode scanner",
                 padding: EdgeInsets.zero,
                 onPressed: _openBarcodeSearchOption,
-                icon: const Icon(
+                icon: Icon(
                   Icons.qr_code_scanner_rounded,
-                  color: Color(0xFFB6F21E),
+                  color: palette.isLight
+                      ? palette.accentStrong
+                      : palette.accent,
                   size: 22,
                 ),
               ),
@@ -2975,7 +3092,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
 
     return ColoredBox(
-      color: Colors.black,
+      color: palette.surface,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2991,9 +3108,9 @@ class _HomeScreenState extends State<HomeScreen>
                     child: IconButton(
                       padding: EdgeInsets.zero,
                       onPressed: () => Navigator.of(pageContext).pop(),
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.arrow_back_rounded,
-                        color: Colors.white,
+                        color: palette.textPrimary,
                         size: 21,
                       ),
                     ),
@@ -3003,6 +3120,8 @@ class _HomeScreenState extends State<HomeScreen>
                     width: 112,
                     height: 38,
                     fit: BoxFit.contain,
+                    color: palette.isLight ? const Color(0xFF11130E) : null,
+                    colorBlendMode: BlendMode.srcIn,
                   ),
                   const Spacer(),
                   InkWell(
@@ -3017,9 +3136,11 @@ class _HomeScreenState extends State<HomeScreen>
                         shape: BoxShape.circle,
                         border: Border.all(color: palette.accent, width: 1.3),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.workspace_premium_rounded,
-                        color: Color(0xFFFFD23F),
+                        color: palette.isLight
+                            ? palette.textPrimary
+                            : const Color(0xFFFFD23F),
                         size: 18,
                       ),
                     ),
@@ -3043,19 +3164,19 @@ class _HomeScreenState extends State<HomeScreen>
                                     )
                                     .then((_) => _refreshAuthToken());
                               },
-                              child: const Text(
+                              child: Text(
                                 "Login",
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: palette.textPrimary,
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
-                            const Text(
+                            Text(
                               " / ",
                               style: TextStyle(
-                                color: Colors.white70,
+                                color: palette.textMuted,
                                 fontSize: 10,
                               ),
                             ),
@@ -3069,10 +3190,12 @@ class _HomeScreenState extends State<HomeScreen>
                                     )
                                     .then((_) => _refreshAuthToken());
                               },
-                              child: const Text(
+                              child: Text(
                                 "Signup",
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: palette.isLight
+                                      ? palette.accentStrong
+                                      : palette.accent,
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -3081,12 +3204,12 @@ class _HomeScreenState extends State<HomeScreen>
                           ],
                         ),
                         const SizedBox(height: 2),
-                        const Text(
+                        Text(
                           "Get Exclusive Offers",
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: Color(0xFFAAAAAA),
+                            color: palette.textMuted,
                             fontSize: 8.5,
                           ),
                         ),
@@ -3108,9 +3231,9 @@ class _HomeScreenState extends State<HomeScreen>
                               builder: (_) => const CartScreen(),
                             ),
                           ),
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.shopping_cart_rounded,
-                            color: Colors.white,
+                            color: palette.textPrimary,
                             size: 21,
                           ),
                         ),
@@ -3150,14 +3273,8 @@ class _HomeScreenState extends State<HomeScreen>
               clipBehavior: Clip.hardEdge,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF57595B)),
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFF151617),
-                    Color(0xFF0B0C0D),
-                    Color(0xFF171819),
-                  ],
-                ),
+                border: Border.all(color: palette.border),
+                color: palette.surface,
               ),
               child: TextField(
                 onChanged: (value) {
@@ -3171,9 +3288,9 @@ class _HomeScreenState extends State<HomeScreen>
                   searchController.text = value;
                   _goToSearch();
                 },
-                cursorColor: const Color(0xFFB6F21E),
-                style: const TextStyle(
-                  color: Color(0xFFF2F2F2),
+                cursorColor: palette.accentStrong,
+                style: TextStyle(
+                  color: palette.textPrimary,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -3233,13 +3350,13 @@ class _HomeScreenState extends State<HomeScreen>
     final radius = BorderRadius.circular(18);
 
     return Material(
-      color: const Color(0xFF080A08),
+      color: palette.surface,
       elevation: 3,
       shadowColor: Colors.black.withOpacity(0.4),
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: radius,
-        side: const BorderSide(color: Color(0xFF2A3025)),
+        side: BorderSide(color: palette.border),
       ),
       child: InkWell(
         onTap: onTap,
@@ -3303,8 +3420,8 @@ class _HomeScreenState extends State<HomeScreen>
                           title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: palette.textPrimary,
                             fontSize: 11,
                             height: 1.08,
                             fontWeight: FontWeight.w900,
@@ -3351,7 +3468,11 @@ class _HomeScreenState extends State<HomeScreen>
     return "";
   }
 
-  String _homeCategoryFolderImageUrl(String title, String imageVersion) {
+  String _homeCategoryFolderImageUrl(
+    String title,
+    String imageVersion, {
+    required bool lightTheme,
+  }) {
     final imageName = title
         .trim()
         .toLowerCase()
@@ -3362,32 +3483,34 @@ class _HomeScreenState extends State<HomeScreen>
     final versionQuery = version.isEmpty
         ? ""
         : "?v=${Uri.encodeQueryComponent(version)}";
-    return "https://yanaworldwide.store/Yanaapp/catimg/$imageName.png$versionQuery";
+    final imageFolder = lightTheme ? 'catiimglight' : 'catimg';
+    return "https://yanaworldwide.store/Yanaapp/$imageFolder/$imageName.png$versionQuery";
   }
 
   Widget _buildHomeBikeGridCard({
     required String title,
     required String imageUrl,
-    required String fallbackImageUrl,
     required double height,
     required bool showGreenStripe,
     required bool showNeonBorder,
     required VoidCallback onTap,
   }) {
-    final hasImage = imageUrl.toLowerCase().startsWith("http");
-    final hasFallbackImage = fallbackImageUrl.toLowerCase().startsWith("http");
+    final palette = context.appPalette;
+    final isLightTheme = palette.isLight;
     return SizedBox(
       height: height,
       child: Semantics(
         label: title,
         button: true,
         child: Material(
-          color: const Color(0xFF080A08),
+          color: isLightTheme ? palette.surface : const Color(0xFF080A08),
           elevation: showNeonBorder ? 2 : 0,
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: showNeonBorder
+            side: isLightTheme
+                ? BorderSide(color: palette.border, width: 1)
+                : showNeonBorder
                 ? BorderSide(
                     color: context.appPalette.highlight.withOpacity(0.62),
                     width: 1,
@@ -3399,33 +3522,17 @@ class _HomeScreenState extends State<HomeScreen>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                const ColoredBox(color: Color(0xFF050605)),
-                if (hasImage)
-                  CachedNetworkImage(
-                    imageUrl: imageUrl,
-                    fit: BoxFit.contain,
-                    memCacheWidth: _homeCategoryImageCacheWidth,
-                    maxWidthDiskCache: _homeCategoryImageCacheWidth,
-                    filterQuality: FilterQuality.low,
-                    placeholder: (_, __) => const SizedBox.shrink(),
-                    errorWidget: (_, __, ___) => hasFallbackImage
-                        ? AppCachedImage(
-                            url: fallbackImageUrl,
-                            fit: BoxFit.contain,
-                            memCacheWidth: _homeCategoryImageCacheWidth,
-                            maxWidthDiskCache: _homeCategoryImageCacheWidth,
-                            filterQuality: FilterQuality.low,
-                          )
-                        : const SizedBox.shrink(),
-                  )
-                else if (hasFallbackImage)
-                  AppCachedImage(
-                    url: fallbackImageUrl,
-                    fit: BoxFit.contain,
-                    memCacheWidth: _homeCategoryImageCacheWidth,
-                    maxWidthDiskCache: _homeCategoryImageCacheWidth,
-                    filterQuality: FilterQuality.low,
-                  ),
+                ColoredBox(
+                  color: isLightTheme
+                      ? palette.surface
+                      : const Color(0xFF050605),
+                ),
+                _RetryingHomeCategoryImage(
+                  debugLabel: title,
+                  imageUrl: imageUrl,
+                  fit: isLightTheme ? BoxFit.cover : BoxFit.contain,
+                  memCacheWidth: _homeCategoryImageCacheWidth,
+                ),
                 if (showGreenStripe)
                   Positioned(
                     left: -13,
@@ -3701,7 +3808,8 @@ class _HomeScreenState extends State<HomeScreen>
       pillText: "Latest 10",
       icon: Icons.new_releases_rounded,
       badgeText: "NEW",
-      accentColorBuilder: (palette) => palette.highlight,
+      accentColorBuilder: (palette) =>
+          palette.isLight ? palette.accentStrong : palette.highlight,
     );
   }
 
@@ -3712,7 +3820,8 @@ class _HomeScreenState extends State<HomeScreen>
       pillText: "Top 10",
       icon: Icons.local_fire_department_rounded,
       badgeText: "BEST",
-      accentColorBuilder: (palette) => palette.accent,
+      accentColorBuilder: (palette) =>
+          palette.isLight ? palette.accentStrong : palette.accent,
     );
   }
 
@@ -4030,8 +4139,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (categories.isEmpty) return const SizedBox.shrink();
 
     final palette = context.appPalette;
-    final isWhiteTheme = palette.id == AppThemes.whitePalette.id;
-    final tileColor = palette.surface;
+    final isWhiteTheme = palette.isLight;
+    const tileColor = Colors.white;
     final tileBorder = isWhiteTheme ? palette.border : const Color(0xFF3A3A3F);
     final viewAllColor = isWhiteTheme
         ? palette.surface
@@ -4142,7 +4251,6 @@ class _HomeScreenState extends State<HomeScreen>
                                 ? AppCachedImage(
                                     url: imageUrl,
                                     fit: BoxFit.contain,
-                                    isCircular: false,
                                     memCacheWidth: _homeCategoryImageCacheWidth,
                                     maxWidthDiskCache:
                                         _homeCategoryImageCacheWidth,
@@ -4283,6 +4391,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    _saleStatusTimer?.cancel();
+    _saleTransitionTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     widget.recentlyViewedRefresh?.removeListener(_handleRecentlyViewedRefresh);
     _titleAnimController.dispose();
@@ -4696,6 +4806,10 @@ class _HomeScreenState extends State<HomeScreen>
                                 height: 38,
                                 alignment: Alignment.centerLeft,
                                 fit: BoxFit.contain,
+                                color: palette.isLight
+                                    ? const Color(0xFF11130E)
+                                    : null,
+                                colorBlendMode: BlendMode.srcIn,
                               ),
                               Expanded(
                                 child: Align(
@@ -4743,12 +4857,12 @@ class _HomeScreenState extends State<HomeScreen>
                                                           width: 1.4,
                                                         ),
                                                       ),
-                                                      child: const Icon(
+                                                      child: Icon(
                                                         Icons
                                                             .workspace_premium_rounded,
-                                                        color: Color(
-                                                          0xFFFFD23F,
-                                                        ),
+                                                        color: palette.isLight
+                                                            ? Color(0xFF11130E)
+                                                            : Color(0xFFFFD23F),
                                                         size: 20,
                                                       ),
                                                     ),
@@ -4778,7 +4892,7 @@ class _HomeScreenState extends State<HomeScreen>
                                                                     _refreshAuthToken(),
                                                               );
                                                             },
-                                                            child: const Padding(
+                                                            child: Padding(
                                                               padding:
                                                                   EdgeInsets.symmetric(
                                                                     vertical: 2,
@@ -4786,8 +4900,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                               child: Text(
                                                                 'Login',
                                                                 style: TextStyle(
-                                                                  color: Colors
-                                                                      .white,
+                                                                  color: palette
+                                                                      .textPrimary,
                                                                   fontWeight:
                                                                       FontWeight
                                                                           .w700,
@@ -4796,11 +4910,11 @@ class _HomeScreenState extends State<HomeScreen>
                                                               ),
                                                             ),
                                                           ),
-                                                          const Text(
+                                                          Text(
                                                             ' / ',
                                                             style: TextStyle(
-                                                              color: Colors
-                                                                  .white70,
+                                                              color: palette
+                                                                  .textMuted,
                                                               fontSize: 12,
                                                             ),
                                                           ),
@@ -4817,7 +4931,7 @@ class _HomeScreenState extends State<HomeScreen>
                                                                     _refreshAuthToken(),
                                                               );
                                                             },
-                                                            child: const Padding(
+                                                            child: Padding(
                                                               padding:
                                                                   EdgeInsets.symmetric(
                                                                     vertical: 2,
@@ -4825,8 +4939,13 @@ class _HomeScreenState extends State<HomeScreen>
                                                               child: Text(
                                                                 'Signup',
                                                                 style: TextStyle(
-                                                                  color: Colors
-                                                                      .white,
+                                                                  color:
+                                                                      palette
+                                                                          .isLight
+                                                                      ? palette
+                                                                            .accentStrong
+                                                                      : palette
+                                                                            .accent,
                                                                   fontWeight:
                                                                       FontWeight
                                                                           .w700,
@@ -4880,10 +4999,12 @@ class _HomeScreenState extends State<HomeScreen>
                                                         width: 1.4,
                                                       ),
                                                     ),
-                                                    child: const Icon(
+                                                    child: Icon(
                                                       Icons
                                                           .workspace_premium_rounded,
-                                                      color: Color(0xFFFFD23F),
+                                                      color: palette.isLight
+                                                          ? Color(0xFF11130E)
+                                                          : Color(0xFFFFD23F),
                                                       size: 20,
                                                     ),
                                                   ),
@@ -4962,6 +5083,14 @@ class _HomeScreenState extends State<HomeScreen>
                                                   },
                                                 ),
                                                 IconButton(
+                                                  constraints:
+                                                      const BoxConstraints.tightFor(
+                                                        width: 32,
+                                                        height: 36,
+                                                      ),
+                                                  padding: EdgeInsets.zero,
+                                                  visualDensity:
+                                                      VisualDensity.compact,
                                                   icon: Icon(
                                                     Icons.person,
                                                     color: palette.textPrimary,
@@ -4981,7 +5110,7 @@ class _HomeScreenState extends State<HomeScreen>
                                             );
                                           },
                                         ),
-                                        const SizedBox(width: 8),
+                                        const SizedBox(width: 4),
                                         Consumer<CartProvider>(
                                           builder: (context, cart, child) {
                                             return Stack(
@@ -5022,7 +5151,8 @@ class _HomeScreenState extends State<HomeScreen>
                                                     },
                                                     child: Icon(
                                                       Icons.shopping_cart,
-                                                      color: Colors.white,
+                                                      color:
+                                                          palette.textPrimary,
                                                       size: 21,
                                                     ),
                                                   ),
@@ -5662,7 +5792,6 @@ class _HomeScreenState extends State<HomeScreen>
                   sectionWidgets.add(
                     _buildHomeCategoryGroups(
                       groupedData,
-                      topBrandCategories,
                       categorySection.imageVersion,
                     ),
                   );
@@ -5674,6 +5803,8 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
 
+        /* Keep only these two bottom category promo banners in source, hidden
+           from the home feed for now.
         // --- Category Banners ---
         SliverToBoxAdapter(
           child: Column(
@@ -5746,6 +5877,7 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
         ),
+        */
 
         // Keep these sections available without showing them on the home feed.
         if (_showHomeBikeGarage)
@@ -5879,10 +6011,10 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildNoInternetBanner() {
     final palette = context.appPalette;
     final backgroundColor = palette.isLight
-        ? palette.highlight.withOpacity(0.16)
+        ? palette.surfaceStrong
         : palette.highlight.withOpacity(0.18);
     final borderColor = palette.isLight
-        ? palette.highlight.withOpacity(0.75)
+        ? palette.border
         : palette.highlight.withOpacity(0.88);
     final progressTrack = palette.isLight
         ? palette.surfaceSoft
@@ -5908,7 +6040,9 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               Icon(
                 Icons.cloud_sync_rounded,
-                color: palette.highlight,
+                color: palette.isLight
+                    ? palette.accentStrong
+                    : palette.highlight,
                 size: 20,
               ),
               const SizedBox(width: 8),
@@ -5939,7 +6073,9 @@ class _HomeScreenState extends State<HomeScreen>
           LinearProgressIndicator(
             minHeight: 2.5,
             backgroundColor: progressTrack,
-            valueColor: AlwaysStoppedAnimation<Color>(palette.highlight),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              palette.isLight ? palette.accentStrong : palette.highlight,
+            ),
           ),
         ],
       ),
@@ -5965,13 +6101,16 @@ class _HomeScreenState extends State<HomeScreen>
       SaleBanner(
         daily: false,
         enabled: _bigDaysSaleEnabled,
+        saleTitle: _bigDaysSaleLabel,
+        festivalKey: _bigDaysFestivalKey,
+        upcomingMessage: _bigDaysSaleEnabled ? null : _upcomingSaleMessage,
         onTap: () {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => const SaleProductsScreen(
+              builder: (_) => SaleProductsScreen(
                 collectionKey: "big_days_sale",
-                title: "Big Days Sale",
+                title: _bigDaysSaleLabel,
               ),
             ),
           );
@@ -6921,6 +7060,111 @@ class _DailySaleCountdownCardState extends State<_DailySaleCountdownCard> {
           : isLive
           ? 'Ends in'
           : 'Starts in',
+    );
+  }
+}
+
+class _RetryingHomeCategoryImage extends StatefulWidget {
+  const _RetryingHomeCategoryImage({
+    required this.debugLabel,
+    required this.imageUrl,
+    required this.fit,
+    required this.memCacheWidth,
+  });
+
+  final String debugLabel;
+  final String imageUrl;
+  final BoxFit fit;
+  final int memCacheWidth;
+
+  @override
+  State<_RetryingHomeCategoryImage> createState() =>
+      _RetryingHomeCategoryImageState();
+}
+
+class _RetryingHomeCategoryImageState
+    extends State<_RetryingHomeCategoryImage> {
+  Timer? _retryTimer;
+  int _retryAttempt = 0;
+  String? _lastRemovedFailedUrl;
+
+  @override
+  void didUpdateWidget(covariant _RetryingHomeCategoryImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrl != widget.imageUrl) {
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      _retryAttempt = 0;
+      _lastRemovedFailedUrl = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    super.dispose();
+  }
+
+  void _retryAfterDelay() {
+    if (_retryTimer != null) return;
+    _retryTimer = Timer(const Duration(seconds: 20), () {
+      _retryTimer = null;
+      if (!mounted) return;
+      setState(() => _retryAttempt++);
+    });
+  }
+
+  void _removeFailedCachedImage(String url) {
+    if (_lastRemovedFailedUrl == url) return;
+    _lastRemovedFailedUrl = url;
+    unawaited(CategoryImageCache.removeFailedFile(url));
+  }
+
+  String get _retryUrl {
+    if (_retryAttempt == 0) return widget.imageUrl;
+    final uri = Uri.tryParse(widget.imageUrl);
+    if (uri == null) return widget.imageUrl;
+    return uri
+        .replace(
+          queryParameters: {
+            ...uri.queryParameters,
+            'retry': _retryAttempt.toString(),
+          },
+        )
+        .toString();
+  }
+
+  Widget _loadingPlaceholder() {
+    return const SkeletonBox(radius: 16);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.imageUrl.trim().toLowerCase().startsWith('http')) {
+      return _loadingPlaceholder();
+    }
+
+    return CachedNetworkImage(
+      key: ValueKey(_retryUrl),
+      imageUrl: _retryUrl,
+      cacheManager: CategoryImageCache.instance,
+      fit: widget.fit,
+      memCacheWidth: widget.memCacheWidth,
+      filterQuality: FilterQuality.low,
+      placeholder: (_, __) => const SkeletonBox(radius: 16),
+      imageBuilder: (context, imageProvider) {
+        _retryTimer?.cancel();
+        _retryTimer = null;
+        return Image(image: imageProvider, fit: widget.fit);
+      },
+      errorWidget: (_, url, error) {
+        debugPrint(
+          '[home-category-image] ${widget.debugLabel} url=$url error=$error',
+        );
+        _removeFailedCachedImage(_retryUrl);
+        _retryAfterDelay();
+        return _loadingPlaceholder();
+      },
     );
   }
 }

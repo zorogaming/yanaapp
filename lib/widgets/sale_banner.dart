@@ -1,6 +1,5 @@
-import 'dart:ui' show FontFeature;
-
 import 'package:flutter/material.dart';
+import 'festival_sale_decoration.dart';
 
 /// Reference artwork bundled locally so the sale banners also work offline.
 class SaleBanner extends StatelessWidget {
@@ -11,6 +10,9 @@ class SaleBanner extends StatelessWidget {
     required this.onTap,
     this.countdown,
     this.countdownLabel,
+    this.saleTitle,
+    this.festivalKey = '',
+    this.upcomingMessage,
   });
 
   final bool daily;
@@ -18,6 +20,9 @@ class SaleBanner extends StatelessWidget {
   final VoidCallback onTap;
   final String? countdown;
   final String? countdownLabel;
+  final String? saleTitle;
+  final String festivalKey;
+  final String? upcomingMessage;
 
   static const _ink = Color(0xFF0D1006);
   static const _gold = Color(0xFFF2C25A);
@@ -28,7 +33,7 @@ class SaleBanner extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: enabled,
-      label: daily ? 'Daily Sale' : 'Big Days Sale',
+      label: daily ? 'Daily Sale' : (saleTitle ?? 'Big Days Sale'),
       child: AspectRatio(
         aspectRatio: 1045 / 630,
         child: LayoutBuilder(
@@ -122,14 +127,23 @@ class SaleBanner extends StatelessWidget {
                           ? const FittedBox(
                               child: Icon(Icons.bolt, color: _ink),
                             )
+                          : festivalKey.isNotEmpty
+                          ? FestivalSaleIcon(festivalKey: festivalKey)
                           : CustomPaint(painter: _SaleCrownPainter()),
                     ),
-                    label(
-                      daily ? 'Daily Sale' : 'Big Days Sale',
-                      daily ? 15.8 : 19,
-                      7.2,
-                      5.4,
-                      FontWeight.w700,
+                    Positioned(
+                      left: (daily ? 15.8 : 19) * u,
+                      top: 7.2 * u,
+                      width: (daily ? 78 : 76) * u,
+                      height: 6.5 * u,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          daily ? 'Daily Sale' : (saleTitle ?? 'Big Days Sale'),
+                          style: text(5.4, FontWeight.w700),
+                        ),
+                      ),
                     ),
                     if (daily) ...[
                       Positioned(
@@ -175,15 +189,31 @@ class SaleBanner extends StatelessWidget {
                       ),
                     ] else ...[
                       label('Up to', 5.8, 16.3, 4.8, FontWeight.w400),
+                      if (upcomingMessage == null)
+                        label(
+                          enabled ? '70% OFF' : 'CLOSED',
+                          5.6,
+                          22,
+                          11.2,
+                          FontWeight.w800,
+                        )
+                      else
+                        Positioned(
+                          left: 5.8 * u,
+                          top: 20.5 * u,
+                          width: 46.5 * u,
+                          height: 12 * u,
+                          child: Text(
+                            upcomingMessage!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: text(4.1, FontWeight.w800),
+                          ),
+                        ),
                       label(
-                        enabled ? '70% OFF' : 'CLOSED',
-                        5.6,
-                        22,
-                        11.2,
-                        FontWeight.w800,
-                      ),
-                      label(
-                        enabled
+                        upcomingMessage != null
+                            ? 'Coming Soon'
+                            : enabled
                             ? 'On Selected Brands'
                             : 'Currently unavailable',
                         5.8,
@@ -254,6 +284,8 @@ class SaleBanner extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (!daily && enabled && !reducedMotion)
+                      Positioned.fill(child: ActiveSaleBorder(radius: 6.2 * u)),
                   ],
                 ),
               ),

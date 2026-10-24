@@ -87,7 +87,8 @@ class _MainNavigationState extends State<MainNavigation> {
     );
     final versionLoad = WooService().fetchAppVersion().timeout(
       const Duration(seconds: 4),
-    );
+      onTimeout: () => null,
+    ).catchError((_) => null);
 
     try {
       final rawProducts = await DataManager().getHomeProducts().timeout(
@@ -218,14 +219,30 @@ class _MainNavigationState extends State<MainNavigation> {
                     NotificationInboxService.instance.unreadCountNotifier,
                 builder: (context, unreadCount, _) {
                   return Container(
+                    clipBehavior: Clip.antiAlias,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 5,
                       vertical: 5,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF080A08),
+                      color: palette.isLight
+                          ? palette.surface
+                          : const Color(0xFF080A08),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF343A35)),
+                      border: Border.all(
+                        color: palette.isLight
+                            ? palette.border
+                            : const Color(0xFF343A35),
+                      ),
+                      boxShadow: palette.isLight
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 12,
+                                offset: const Offset(0, 3),
+                              ),
+                            ]
+                          : null,
                     ),
                     child: Row(
                       children: [
@@ -329,20 +346,13 @@ class _MainNavigationState extends State<MainNavigation> {
                     decoration: BoxDecoration(
                       color: isSelected ? palette.accent : Colors.transparent,
                       shape: BoxShape.circle,
-                      boxShadow: isSelected
-                          ? [
-                              BoxShadow(
-                                color: palette.accent.withOpacity(0.16),
-                                blurRadius: 12,
-                                spreadRadius: 1,
-                              ),
-                            ]
-                          : null,
                     ),
                     child: Icon(
                       icon,
                       color: isSelected
                           ? palette.onAccent
+                          : palette.isLight
+                          ? palette.textMuted
                           : const Color(0xFFB8B8B8),
                       size: 19,
                     ),
@@ -380,7 +390,11 @@ class _MainNavigationState extends State<MainNavigation> {
               Text(
                 label,
                 style: TextStyle(
-                  color: isSelected ? palette.accent : const Color(0xFFC2C2C2),
+                  color: isSelected
+                      ? palette.textPrimary
+                      : palette.isLight
+                      ? palette.textMuted
+                      : const Color(0xFFC2C2C2),
                   fontSize: 9.5,
                   fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
                 ),

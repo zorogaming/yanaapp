@@ -3,17 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum AppThemeMode {
   midnight,
-  cherryRed,
-  cherryBlue,
-  facebookBlue,
-  cherryGreen,
   cherryYellow,
-  cherryPink,
-  blushRed,
-  skyBlue,
-  mintGreen,
-  rosePink,
-  white,
+  lightTheme,
 }
 
 class AppThemePalette extends ThemeExtension<AppThemePalette> {
@@ -163,78 +154,6 @@ class AppThemes {
     success: Color(0xFF25D366),
   );
 
-  static const AppThemePalette cherryRedPalette = AppThemePalette(
-    id: 'cherry_red',
-    label: 'Cherry Red',
-    background: Color(0xFF0D0D0D),
-    surface: Color(0xFF141414),
-    surfaceStrong: Color(0xFF1C1C1C),
-    surfaceSoft: Color(0xFF232323),
-    accent: Color(0xFFE53935),
-    accentStrong: Color(0xFFC62828),
-    highlight: Color(0xFFFF6B6B),
-    textPrimary: Colors.white,
-    textMuted: Color(0xFF9A9A9A),
-    border: Color(0x26FFFFFF),
-    heroStart: Color(0xFF111111),
-    heroEnd: Color(0xFF0D0D0D),
-    success: Color(0xFF25D366),
-  );
-
-  static const AppThemePalette cherryBluePalette = AppThemePalette(
-    id: 'cherry_blue',
-    label: 'Cherry Blue',
-    background: Color(0xFF0D0D0D),
-    surface: Color(0xFF141414),
-    surfaceStrong: Color(0xFF1C1C1C),
-    surfaceSoft: Color(0xFF232323),
-    accent: Color(0xFF3B82F6),
-    accentStrong: Color(0xFF2563EB),
-    highlight: Color(0xFF60A5FA),
-    textPrimary: Colors.white,
-    textMuted: Color(0xFF9A9A9A),
-    border: Color(0x26FFFFFF),
-    heroStart: Color(0xFF111111),
-    heroEnd: Color(0xFF0D0D0D),
-    success: Color(0xFF25D366),
-  );
-
-  static const AppThemePalette facebookBluePalette = AppThemePalette(
-    id: 'facebook_blue',
-    label: 'Facebook Blue',
-    background: Color(0xFF162033),
-    surface: Color(0xFF1C2942),
-    surfaceStrong: Color(0xFF243552),
-    surfaceSoft: Color(0xFF304566),
-    accent: Color(0xFF1877F2),
-    accentStrong: Color(0xFF166FE5),
-    highlight: Color(0xFF6BA8FF),
-    textPrimary: Colors.white,
-    textMuted: Color(0xFFBDCAE0),
-    border: Color(0x2EFFFFFF),
-    heroStart: Color(0xFF27406A),
-    heroEnd: Color(0xFF162033),
-    success: Color(0xFF25D366),
-  );
-
-  static const AppThemePalette cherryGreenPalette = AppThemePalette(
-    id: 'cherry_green',
-    label: 'Cherry Green',
-    background: Color(0xFF0D0D0D),
-    surface: Color(0xFF141414),
-    surfaceStrong: Color(0xFF1C1C1C),
-    surfaceSoft: Color(0xFF232323),
-    accent: Color(0xFF22C55E),
-    accentStrong: Color(0xFF16A34A),
-    highlight: Color(0xFF4ADE80),
-    textPrimary: Colors.white,
-    textMuted: Color(0xFF9A9A9A),
-    border: Color(0x26FFFFFF),
-    heroStart: Color(0xFF111111),
-    heroEnd: Color(0xFF0D0D0D),
-    success: Color(0xFF25D366),
-  );
-
   static const AppThemePalette cherryYellowPalette = AppThemePalette(
     id: 'cherry_yellow',
     label: 'Cherry Yellow',
@@ -253,155 +172,38 @@ class AppThemes {
     success: Color(0xFF25D366),
   );
 
-  static const AppThemePalette cherryPinkPalette = AppThemePalette(
-    id: 'cherry_pink',
-    label: 'Cherry Pink',
-    background: Color(0xFF0D0D0D),
-    surface: Color(0xFF141414),
-    surfaceStrong: Color(0xFF1C1C1C),
-    surfaceSoft: Color(0xFF232323),
-    accent: Color(0xFFEC4899),
-    accentStrong: Color(0xFFDB2777),
-    highlight: Color(0xFFF472B6),
-    textPrimary: Colors.white,
-    textMuted: Color(0xFF9A9A9A),
-    border: Color(0x26FFFFFF),
-    heroStart: Color(0xFF111111),
-    heroEnd: Color(0xFF0D0D0D),
-    success: Color(0xFF25D366),
-  );
-
-  static const AppThemePalette blushRedPalette = AppThemePalette(
-    id: 'blush_red',
-    label: 'Blush Red',
-    background: Color(0xFFFFF5F5),
+  static const AppThemePalette lightThemePalette = AppThemePalette(
+    id: 'light_theme',
+    label: 'Light Theme',
+    background: Color(0xFFFFFFFF),
     surface: Color(0xFFFFFFFF),
-    surfaceStrong: Color(0xFFFFE8E8),
-    surfaceSoft: Color(0xFFFFDCDC),
-    accent: Color(0xFFE35D5B),
-    accentStrong: Color(0xFFC74643),
-    highlight: Color(0xFFFF8A80),
-    textPrimary: Color(0xFF2A1616),
-    textMuted: Color(0xFF7E5A5A),
-    border: Color(0xFFF1CACA),
+    surfaceStrong: Color(0xFFF1F3EE),
+    surfaceSoft: Color(0xFFE8EBE4),
+    accent: Color(0xFFB6F21E),
+    accentStrong: Color(0xFF8FC900),
+    highlight: Color(0xFFD8FF78),
+    textPrimary: Color(0xFF11130E),
+    textMuted: Color(0xFF62665D),
+    border: Color(0xFFE1E5DC),
     heroStart: Color(0xFFFFFFFF),
-    heroEnd: Color(0xFFFFEBEB),
-    success: Color(0xFF0F9F6E),
-  );
-
-  static const AppThemePalette skyBluePalette = AppThemePalette(
-    id: 'sky_blue',
-    label: 'Sky Blue',
-    background: Color(0xFFF4F9FF),
-    surface: Color(0xFFFFFFFF),
-    surfaceStrong: Color(0xFFE8F2FF),
-    surfaceSoft: Color(0xFFDDEBFF),
-    accent: Color(0xFF4A90FF),
-    accentStrong: Color(0xFF2F76E6),
-    highlight: Color(0xFF7BB5FF),
-    textPrimary: Color(0xFF10233D),
-    textMuted: Color(0xFF5E7692),
-    border: Color(0xFFD3E3FA),
-    heroStart: Color(0xFFFFFFFF),
-    heroEnd: Color(0xFFEAF4FF),
-    success: Color(0xFF0F9F6E),
-  );
-
-  static const AppThemePalette mintGreenPalette = AppThemePalette(
-    id: 'mint_green',
-    label: 'Mint Green',
-    background: Color(0xFFF4FFF8),
-    surface: Color(0xFFFFFFFF),
-    surfaceStrong: Color(0xFFE6F8EC),
-    surfaceSoft: Color(0xFFD8F1E2),
-    accent: Color(0xFF34C97B),
-    accentStrong: Color(0xFF20A964),
-    highlight: Color(0xFF72E2A4),
-    textPrimary: Color(0xFF11251A),
-    textMuted: Color(0xFF5D7867),
-    border: Color(0xFFCFE8D8),
-    heroStart: Color(0xFFFFFFFF),
-    heroEnd: Color(0xFFE8FAEF),
-    success: Color(0xFF0F9F6E),
-  );
-
-  static const AppThemePalette rosePinkPalette = AppThemePalette(
-    id: 'rose_pink',
-    label: 'Rose Pink',
-    background: Color(0xFFFFF6FB),
-    surface: Color(0xFFFFFFFF),
-    surfaceStrong: Color(0xFFFDEAF4),
-    surfaceSoft: Color(0xFFF9DCEA),
-    accent: Color(0xFFEA5FA1),
-    accentStrong: Color(0xFFD63D88),
-    highlight: Color(0xFFF59AC5),
-    textPrimary: Color(0xFF2C1522),
-    textMuted: Color(0xFF7D6070),
-    border: Color(0xFFF0D2E0),
-    heroStart: Color(0xFFFFFFFF),
-    heroEnd: Color(0xFFFDECF5),
-    success: Color(0xFF0F9F6E),
-  );
-
-  static const AppThemePalette whitePalette = AppThemePalette(
-    id: 'white',
-    label: 'White',
-    background: Color(0xFFF5F7FB),
-    surface: Color(0xFFFFFFFF),
-    surfaceStrong: Color(0xFFEEF3FB),
-    surfaceSoft: Color(0xFFE8EFFA),
-    accent: Color(0xFFC88A3D),
-    accentStrong: Color(0xFFAF6F25),
-    highlight: Color(0xFFFFA24C),
-    textPrimary: Color(0xFF101828),
-    textMuted: Color(0xFF5F6C7B),
-    border: Color(0xFFD7E0EC),
-    heroStart: Color(0xFFFFFFFF),
-    heroEnd: Color(0xFFEEF4FF),
-    success: Color(0xFF0F9F6E),
+    heroEnd: Color(0xFFFFFFFF),
+    success: Color(0xFF12834B),
   );
 
   static List<AppThemeMode> get allModes => const <AppThemeMode>[
     AppThemeMode.midnight,
-    AppThemeMode.cherryRed,
-    AppThemeMode.cherryBlue,
-    AppThemeMode.facebookBlue,
-    AppThemeMode.cherryGreen,
     AppThemeMode.cherryYellow,
-    AppThemeMode.cherryPink,
-    AppThemeMode.blushRed,
-    AppThemeMode.skyBlue,
-    AppThemeMode.mintGreen,
-    AppThemeMode.rosePink,
-    AppThemeMode.white,
+    AppThemeMode.lightTheme,
   ];
 
   static AppThemePalette paletteFor(AppThemeMode mode) {
     switch (mode) {
-      case AppThemeMode.facebookBlue:
-        return facebookBluePalette;
-      case AppThemeMode.cherryBlue:
-        return cherryBluePalette;
-      case AppThemeMode.cherryGreen:
-        return cherryGreenPalette;
       case AppThemeMode.cherryYellow:
         return cherryYellowPalette;
-      case AppThemeMode.cherryPink:
-        return cherryPinkPalette;
-      case AppThemeMode.blushRed:
-        return blushRedPalette;
-      case AppThemeMode.skyBlue:
-        return skyBluePalette;
-      case AppThemeMode.mintGreen:
-        return mintGreenPalette;
-      case AppThemeMode.rosePink:
-        return rosePinkPalette;
-      case AppThemeMode.cherryRed:
-        return cherryRedPalette;
-      case AppThemeMode.white:
-        return whitePalette;
       case AppThemeMode.midnight:
         return midnightPalette;
+      case AppThemeMode.lightTheme:
+        return lightThemePalette;
     }
   }
 
@@ -409,7 +211,7 @@ class AppThemes {
 
   static AppThemeMode modeFromId(String? id) {
     if (id == 'sandstone') {
-      return AppThemeMode.white;
+      return AppThemeMode.lightTheme;
     }
     return AppThemeMode.values.firstWhere(
       (mode) => paletteFor(mode).id == id,
@@ -420,11 +222,7 @@ class AppThemes {
   static ThemeData themeDataFor(AppThemeMode mode) {
     final palette = paletteFor(mode);
     final brightness = switch (mode) {
-      AppThemeMode.white ||
-      AppThemeMode.blushRed ||
-      AppThemeMode.skyBlue ||
-      AppThemeMode.mintGreen ||
-      AppThemeMode.rosePink => Brightness.light,
+      AppThemeMode.lightTheme => Brightness.light,
       _ => Brightness.dark,
     };
     final scheme =

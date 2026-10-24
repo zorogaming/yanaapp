@@ -184,7 +184,11 @@ class StorefrontBenefits extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: Row(
                     children: [
-                      Icon(item.$1, color: p.accent, size: 23),
+                      Icon(
+                        item.$1,
+                        color: p.isLight ? p.accentStrong : p.accent,
+                        size: 23,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         '${item.$2}\n${item.$3}',

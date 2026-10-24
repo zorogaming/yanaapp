@@ -16,6 +16,7 @@ class Product {
   final double? previousPrice;
   final double averageRating;
   final int ratingCount;
+  final String? saleBadgeLabel;
 
   Product({
     required this.id,
@@ -35,6 +36,7 @@ class Product {
     this.previousPrice,
     this.averageRating = 0,
     this.ratingCount = 0,
+    this.saleBadgeLabel,
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -86,6 +88,7 @@ class Product {
       ),
       averageRating: _parseMoneyValue(json['average_rating']) ?? 0,
       ratingCount: _parseIntValue(json['rating_count']),
+      saleBadgeLabel: json['_yana_sale_badge']?.toString(),
     );
   }
 
@@ -106,6 +109,7 @@ class Product {
       if (previousPrice != null) 'previous_price': previousPrice,
       'average_rating': averageRating.toStringAsFixed(1),
       'rating_count': ratingCount,
+      if (saleBadgeLabel != null) '_yana_sale_badge': saleBadgeLabel,
       'images': [
         for (final imageUrl in galleryImages)
           {'src': imageUrl},

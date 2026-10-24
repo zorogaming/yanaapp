@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Yana Sale Collections
  * Description: Daily Sale aur Big Days Sale ke liye WooCommerce product toggles + app REST endpoint.
- * Version: 1.0.0
+ * Version: 1.1.2
  * Author: Yana App
  */
 
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
 }
 
 final class Yana_Sale_Collections {
-    private const VERSION = '1.0.0';
+    private const VERSION = '1.1.2';
     private const META_DAILY = '_yana_daily_sale';
     private const META_BIG_DAYS = '_yana_big_days_sale';
     private const NONCE_ACTION = 'yana_sale_collection_toggle';
@@ -64,10 +64,30 @@ final class Yana_Sale_Collections {
 
     public static function sanitize_settings($input): array {
         $input = is_array($input) ? $input : [];
-
+        $festivals = [];
+        foreach (self::festival_catalog() as $key => $label) {
+            $row = $input['festivals'][$key] ?? [];
+            $row = is_array($row) ? $row : [];
+            $start = self::parse_festival_date($row['start'] ?? '');
+            $end = self::parse_festival_date($row['end'] ?? '');
+            $enabled = ($row['enabled'] ?? 'no') === 'yes';
+            if ($enabled && (!$start || !$end || $end <= $start)) {
+                add_settings_error(self::OPTION_SETTINGS, 'festival_' . $key,
+                    sprintf('%s: valid start/end dates required; end must be after start. This festival was disabled.', $label));
+                $enabled = false;
+            }
+            $festivals[$key] = [
+                'enabled' => $enabled ? 'yes' : 'no',
+                'start' => $start ? $start->format('Y-m-d\TH:i') : '',
+                'end' => $end ? $end->format('Y-m-d\TH:i') : '',
+            ];
+        }
         return [
             'daily_sale_enabled' => (($input['daily_sale_enabled'] ?? 'no') === 'yes') ? 'yes' : 'no',
             'big_days_sale_enabled' => (($input['big_days_sale_enabled'] ?? 'no') === 'yes') ? 'yes' : 'no',
+            'festival_schedule_enabled' => (($input['festival_schedule_enabled'] ?? 'no') === 'yes') ? 'yes' : 'no',
+            'legacy_big_days_override' => (($input['legacy_big_days_override'] ?? 'no') === 'yes') ? 'yes' : 'no',
+            'festivals' => $festivals,
         ];
     }
 
@@ -75,12 +95,91 @@ final class Yana_Sale_Collections {
         return [
             'daily_sale_enabled' => 'yes',
             'big_days_sale_enabled' => 'yes',
+            'festival_schedule_enabled' => 'no',
+            'legacy_big_days_override' => 'no',
+            'festivals' => [],
         ];
     }
 
     private static function get_settings(): array {
         $stored = get_option(self::OPTION_SETTINGS, []);
         return wp_parse_args(is_array($stored) ? $stored : [], self::default_settings());
+    }
+
+    public static function festival_catalog(): array {
+        return [
+            'sankranti' => 'Makar Sankranti / Pongal', 'republic_day' => 'Republic Day',
+            'shivratri' => 'Maha Shivratri', 'holi' => 'Holi',
+            'ugadi' => 'Ugadi / Gudi Padwa', 'eid_fitr' => 'Eid-ul-Fitr',
+            'baisakhi' => 'Baisakhi / Vishu / Bihu', 'akshaya_tritiya' => 'Akshaya Tritiya',
+            'eid_adha' => 'Eid-ul-Adha', 'rakhi' => 'Raksha Bandhan',
+            'independence_day' => 'Independence Day', 'janmashtami' => 'Janmashtami',
+            'ganesh' => 'Ganesh Chaturthi', 'onam' => 'Onam',
+            'navratri' => 'Navratri / Durga Puja', 'dussehra' => 'Dussehra',
+            'dhanteras' => 'Dhanteras', 'diwali' => 'Diwali', 'chhath' => 'Chhath Puja',
+            'gurpurab' => 'Guru Nanak Jayanti', 'christmas' => 'Christmas', 'new_year' => 'New Year',
+        ];
+    }
+
+    private static function parse_festival_date($value): ?DateTimeImmutable {
+        if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/', $value)) return null;
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $value, wp_timezone());
+        return $date && $date->format('Y-m-d\TH:i') === $value ? $date : null;
+    }
+
+    // End is exclusive. When schedules overlap, the latest starting sale wins;
+    // catalog order breaks equal-start ties, so selection is deterministic.
+    public static function festival_state(array $settings, ?DateTimeImmutable $now = null): array {
+        $state = ['label' => 'Big Days Sale', 'festival_key' => '', 'starts_at' => null,
+            'ends_at' => null, 'next_transition_at' => null,
+            'schedule_mode' => ($settings['festival_schedule_enabled'] ?? 'no') === 'yes',
+            'enabled' => ($settings['big_days_sale_enabled'] ?? 'yes') === 'yes'];
+        if (!$state['schedule_mode']) return $state;
+        $state['enabled'] = false;
+        $now = $now ?? new DateTimeImmutable('now', wp_timezone());
+        $winner = null;
+        $next = null;
+        $upcoming = null;
+        foreach (self::festival_catalog() as $key => $label) {
+            $row = $settings['festivals'][$key] ?? [];
+            if (($row['enabled'] ?? 'no') !== 'yes') continue;
+            $start = self::parse_festival_date($row['start'] ?? '');
+            $end = self::parse_festival_date($row['end'] ?? '');
+            if (!$start || !$end || $end <= $start) continue;
+            if ($start > $now && ($upcoming === null || $start < $upcoming['start'])) {
+                $shortNames = ['sankranti' => 'Sankranti', 'ugadi' => 'Ugadi', 'baisakhi' => 'Baisakhi',
+                    'eid_fitr' => 'Eid', 'eid_adha' => 'Eid', 'navratri' => 'Navratri',
+                    'gurpurab' => 'Gurpurab', 'ganesh' => 'Ganesh Utsav', 'rakhi' => 'Rakhi'];
+                $upcoming = [
+                    'label' => ($shortNames[$key] ?? $label) . ' Sale',
+                    'festival_key' => $key,
+                    'start' => $start,
+                    'end' => $end,
+                ];
+            }
+            foreach ([$start, $end] as $boundary) {
+                if ($boundary > $now && ($next === null || $boundary < $next)) $next = $boundary;
+            }
+            if ($start <= $now && $now < $end && ($winner === null || $start > $winner)) {
+                $winner = $start;
+                $shortNames = ['sankranti' => 'Sankranti', 'ugadi' => 'Ugadi', 'baisakhi' => 'Baisakhi',
+                    'eid_fitr' => 'Eid', 'eid_adha' => 'Eid', 'navratri' => 'Navratri',
+                    'gurpurab' => 'Gurpurab', 'ganesh' => 'Ganesh Utsav', 'rakhi' => 'Rakhi'];
+                $state['enabled'] = true;
+                $state['label'] = ($shortNames[$key] ?? $label) . ' Sale';
+                $state['festival_key'] = $key;
+                $state['starts_at'] = $start->format(DATE_ATOM);
+                $state['ends_at'] = $end->format(DATE_ATOM);
+            }
+        }
+        $state['next_transition_at'] = $next ? $next->format(DATE_ATOM) : null;
+        if ($upcoming !== null) {
+            $state['upcoming_label'] = $upcoming['label'];
+            $state['upcoming_festival_key'] = $upcoming['festival_key'];
+            $state['upcoming_starts_at'] = $upcoming['start']->format(DATE_ATOM);
+            $state['upcoming_ends_at'] = $upcoming['end']->format(DATE_ATOM);
+        }
+        return $state;
     }
 
     public static function render_settings_page(): void {
@@ -92,6 +191,7 @@ final class Yana_Sale_Collections {
         ?>
         <div class="wrap">
             <h1><?php esc_html_e('Yana Sale Collections', 'yana'); ?></h1>
+            <?php settings_errors(self::OPTION_SETTINGS); ?>
             <p><?php esc_html_e('Yahan se app ke Daily Sale aur Big Days Sale buttons ko globally enable ya disable kar sakte hain.', 'yana'); ?></p>
 
             <form method="post" action="options.php">
@@ -136,6 +236,35 @@ final class Yana_Sale_Collections {
                                 </label>
                             </td>
                         </tr>
+                    </tbody>
+                </table>
+                <h2>Festival Schedule — Big Days Sale</h2>
+                <p>Festival tick karein aur start/end date-time set karein. Schedule mode mein selected dates ke bahar Big Days Sale band rahegi. Manual Big Days toggle sirf schedule mode OFF hone par apply hota hai.</p>
+                <p><strong>Timezone: <?php echo esc_html(wp_timezone_string()); ?></strong>. End time exclusive hai. Overlap mein latest start wala festival dikhega; same start par neeche table ka pehla festival jeetega.</p>
+                <label>
+                    <input type="checkbox" name="<?php echo esc_attr(self::OPTION_SETTINGS); ?>[festival_schedule_enabled]" value="yes" <?php checked(($settings['festival_schedule_enabled'] ?? 'no') === 'yes'); ?> />
+                    Automatically activate Big Days Sale using festival dates
+                </label>
+                <hr />
+                <h3>Old app compatibility</h3>
+                <p>Use this manual switch to tell older app versions that Big Days Sale is active, regardless of the festival schedule. Turn it off when the sale ends. Older app versions that already cached a disabled response may need to refresh/reopen the sale screen before this takes effect.</p>
+                <label>
+                    <input type="hidden" name="<?php echo esc_attr(self::OPTION_SETTINGS); ?>[legacy_big_days_override]" value="no" />
+                    <input type="checkbox" name="<?php echo esc_attr(self::OPTION_SETTINGS); ?>[legacy_big_days_override]" value="yes" <?php checked(($settings['legacy_big_days_override'] ?? 'no') === 'yes'); ?> />
+                    Manually activate Big Days Sale for old app versions
+                </label>
+                <table class="widefat striped" style="margin-top:16px;max-width:1000px">
+                    <thead><tr><th>Enable festival</th><th>Start date/time</th><th>End date/time</th></tr></thead>
+                    <tbody>
+                    <?php foreach (self::festival_catalog() as $key => $label):
+                        $row = $settings['festivals'][$key] ?? [];
+                        $prefix = self::OPTION_SETTINGS . '[festivals][' . $key . ']'; ?>
+                        <tr>
+                            <td><label><input type="checkbox" name="<?php echo esc_attr($prefix . '[enabled]'); ?>" value="yes" <?php checked(($row['enabled'] ?? 'no') === 'yes'); ?> /> <?php echo esc_html($label); ?></label></td>
+                            <td><input aria-label="<?php echo esc_attr($label . ' start'); ?>" type="datetime-local" name="<?php echo esc_attr($prefix . '[start]'); ?>" value="<?php echo esc_attr($row['start'] ?? ''); ?>" /></td>
+                            <td><input aria-label="<?php echo esc_attr($label . ' end'); ?>" type="datetime-local" name="<?php echo esc_attr($prefix . '[end]'); ?>" value="<?php echo esc_attr($row['end'] ?? ''); ?>" /></td>
+                        </tr>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
                 <?php submit_button(__('Save Settings', 'yana')); ?>
@@ -298,6 +427,16 @@ JS;
         $per_page = min(50, max(1, (int) $request->get_param('per_page')));
         $settings = self::get_settings();
 
+        $festival = self::festival_state($settings);
+        $legacyOverride = ($settings['legacy_big_days_override'] ?? 'no') === 'yes';
+        if ($type === 'big_days_sale' && $legacyOverride) {
+            // Existing clients expect the stable Big Days label and enabled flag.
+            // Preserve current festival metadata when a scheduled sale is active.
+            $festival['enabled'] = true;
+            if (($festival['festival_key'] ?? '') === '') {
+                $festival['label'] = 'Big Days Sale';
+            }
+        }
         $config = match ($type) {
             'daily_sale' => [
                 'meta_key' => self::META_DAILY,
@@ -306,8 +445,8 @@ JS;
             ],
             'big_days_sale' => [
                 'meta_key' => self::META_BIG_DAYS,
-                'enabled' => ($settings['big_days_sale_enabled'] ?? 'yes') === 'yes',
-                'label' => 'Big Days Sale',
+                'enabled' => $legacyOverride || $festival['enabled'],
+                'label' => $festival['label'],
             ],
             default => null,
         };
@@ -319,18 +458,26 @@ JS;
             ], 400);
         }
 
+        $metadata = $type === 'big_days_sale' ? $festival : ['label' => $config['label']];
+        $metadata['server_now'] = (new DateTimeImmutable('now', wp_timezone()))->format(DATE_ATOM);
+        if ($request->get_param('status_only') === '1') {
+            return new WP_REST_Response(array_merge($metadata, [
+                'ok' => true, 'enabled' => $config['enabled'], 'type' => $type,
+            ]), 200, ['Cache-Control' => 'no-store, max-age=0']);
+        }
+
         if (!$config['enabled']) {
             $disabledMessage = $type === 'big_days_sale'
                 ? 'Big Days Sale is available only during special event periods. It can go live at any time, and discounts may go up to 70%. Sometimes products are offered at near-cost pricing.'
                 : sprintf('%s is currently disabled by admin.', $config['label']);
 
-            return new WP_REST_Response([
+            return new WP_REST_Response(array_merge($metadata, [
                 'ok' => true,
                 'enabled' => false,
                 'type' => $type,
                 'message' => $disabledMessage,
                 'items' => [],
-            ]);
+            ]), 200, ['Cache-Control' => 'no-store, max-age=0']);
         }
 
         $query = new WP_Query([
@@ -354,7 +501,7 @@ JS;
             $items[] = self::format_product_for_app($product);
         }
 
-        return new WP_REST_Response([
+        return new WP_REST_Response(array_merge($metadata, [
             'ok' => true,
             'enabled' => true,
             'type' => $type,
@@ -363,7 +510,7 @@ JS;
             'total' => (int) $query->found_posts,
             'pages' => (int) $query->max_num_pages,
             'items' => $items,
-        ]);
+        ]), 200, ['Cache-Control' => 'no-store, max-age=0']);
     }
 
     private static function format_product_for_app(WC_Product $product): array {
