@@ -10,7 +10,7 @@ import '../providers/cart_provider.dart';
 import '../services/category_image_cache.dart';
 import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_cached_image.dart';
+import '../widgets/category_fallback_image.dart';
 import 'cart_screen.dart';
 import 'products_screen.dart';
 import 'search_result_screen.dart';
@@ -504,16 +504,23 @@ class _RailCategoryTile extends StatelessWidget {
                         cacheManager: CategoryImageCache.instance,
                         fit: BoxFit.cover,
                         alignment: Alignment.topCenter,
+                        memCacheWidth: 200,
+                        maxWidthDiskCache: 200,
+                        placeholder: (context, _) =>
+                            const CategoryFallbackImage(),
                         errorWidget: (context, _, __) => hasFallbackImage
-                            ? AppCachedImage(
-                                url: item.imageUrl,
+                            ? CachedNetworkImage(
+                                imageUrl: item.imageUrl,
+                                cacheManager: CategoryImageCache.instance,
                                 fit: BoxFit.contain,
+                                memCacheWidth: 200,
+                                maxWidthDiskCache: 200,
+                                placeholder: (context, _) =>
+                                    const CategoryFallbackImage(),
+                                errorWidget: (context, _, __) =>
+                                    const CategoryFallbackImage(),
                               )
-                            : Icon(
-                                _iconForTitle(item.title),
-                                color: palette.accent,
-                                size: 28,
-                              ),
+                            : const CategoryFallbackImage(),
                       ),
                     ),
                   ),
@@ -566,19 +573,21 @@ class _CategoryGridCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: palette.border),
                 ),
-                child: hasImage
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(18),
-                        child: AppCachedImage(
-                          url: item.imageUrl,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: hasImage
+                      ? CachedNetworkImage(
+                          imageUrl: item.imageUrl,
                           fit: BoxFit.contain,
-                        ),
-                      )
-                    : Icon(
-                        _iconForTitle(item.title),
-                        color: palette.accent,
-                        size: 34,
-                      ),
+                          memCacheWidth: 200,
+                          maxWidthDiskCache: 200,
+                          placeholder: (context, _) =>
+                              const CategoryFallbackImage(),
+                          errorWidget: (context, _, __) =>
+                              const CategoryFallbackImage(),
+                        )
+                      : const CategoryFallbackImage(),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -619,24 +628,3 @@ String _categoryFolderImageUrl(
   return 'https://yanaworldwide.store/Yanaapp/$imageFolder/$imageName.png$versionQuery';
 }
 
-IconData _iconForTitle(String rawTitle) {
-  final title = rawTitle.toLowerCase();
-  if (title.contains("helmet")) return Icons.sports_motorsports_rounded;
-  if (title.contains("light")) return Icons.lightbulb_rounded;
-  if (title.contains("luggage") || title.contains("bag")) {
-    return Icons.luggage_rounded;
-  }
-  if (title.contains("oil") || title.contains("lubricant")) {
-    return Icons.oil_barrel_rounded;
-  }
-  if (title.contains("gear") || title.contains("jacket")) {
-    return Icons.health_and_safety_rounded;
-  }
-  if (title.contains("electronic") || title.contains("gps")) {
-    return Icons.settings_input_component_rounded;
-  }
-  if (title.contains("combo") || title.contains("offer")) {
-    return Icons.local_offer_rounded;
-  }
-  return Icons.two_wheeler_rounded;
-}
