@@ -178,6 +178,10 @@ class _SignupScreenState extends State<SignupScreen> {
                   child: Image.asset(
                     'assets/icon/icon.png',
                     fit: BoxFit.contain,
+                    color: palette.isLight
+                        ? const Color(0xFF11130E)
+                        : Colors.white,
+                    colorBlendMode: BlendMode.srcIn,
                   ),
                 ),
               ),

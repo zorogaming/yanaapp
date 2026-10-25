@@ -295,6 +295,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: 74,
                       height: 74,
                       fit: BoxFit.contain,
+                      color: palette.isLight ? const Color(0xFF11130E) : Colors.white,
+                      colorBlendMode: BlendMode.srcIn,
                     ),
                     const SizedBox(height: 18),
                     Text(

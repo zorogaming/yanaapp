@@ -1795,7 +1795,9 @@ class _HomeScreenState extends State<HomeScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: palette.accent,
+                    color: palette.isLight
+                        ? const Color(0xFF466600)
+                        : palette.accent,
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                   ),
@@ -5224,26 +5226,29 @@ class _HomeScreenState extends State<HomeScreen>
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: const Color(0xFF57595B),
+                            color: palette.border,
                             width: 1,
                           ),
-                          gradient: const LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            colors: [
-                              Color(0xFF151617),
-                              Color(0xFF0B0C0D),
-                              Color(0xFF171819),
-                            ],
-                          ),
+                          color: palette.isLight ? palette.surface : null,
+                          gradient: palette.isLight
+                              ? null
+                              : const LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [
+                                    Color(0xFF151617),
+                                    Color(0xFF0B0C0D),
+                                    Color(0xFF171819),
+                                  ],
+                                ),
                         ),
                         child: TextField(
                           controller: searchController,
                           focusNode: _searchFocusNode,
                           onChanged: _handleSearchChanged,
-                          cursorColor: const Color(0xFFB6F21E),
-                          style: const TextStyle(
-                            color: Color(0xFFF2F2F2),
+                          cursorColor: palette.accentStrong,
+                          style: TextStyle(
+                            color: palette.textPrimary,
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
                           ),
@@ -5251,13 +5256,15 @@ class _HomeScreenState extends State<HomeScreen>
                           onSubmitted: (_) => _goToSearch(),
                           decoration: InputDecoration(
                             hintText: "Search parts, bikes, brands, SKU...",
-                            hintStyle: const TextStyle(
-                              color: Color(0xFF9A9A9A),
+                            hintStyle: TextStyle(
+                              color: palette.textMuted,
                               fontSize: 12.5,
                             ),
                             prefixIcon: Icon(
                               Icons.search_rounded,
-                              color: const Color(0xFFB6F21E),
+                              color: palette.isLight
+                                  ? palette.accentStrong
+                                  : palette.accent,
                               size: 23,
                             ),
                             prefixIconConstraints: const BoxConstraints(

@@ -1,0 +1,11 @@
+# Add narrowly scoped keep rules only for classes accessed through reflection.
+-dontwarn com.google.android.apps.nbu.paisa.inapp.client.api.PaymentsClient
+-dontwarn com.google.android.apps.nbu.paisa.inapp.client.api.Wallet
+-dontwarn com.google.android.apps.nbu.paisa.inapp.client.api.WalletUtils
+-dontwarn com.google.android.gms.auth.api.credentials.Credential
+-dontwarn com.google.android.gms.auth.api.credentials.Credentials
+-dontwarn com.google.android.gms.auth.api.credentials.CredentialsClient
+-dontwarn com.google.android.gms.auth.api.credentials.CredentialsOptions$Builder
+-dontwarn com.google.android.gms.auth.api.credentials.CredentialsOptions
+-dontwarn com.google.android.gms.auth.api.credentials.HintRequest$Builder
+-dontwarn com.google.android.gms.auth.api.credentials.HintRequest
