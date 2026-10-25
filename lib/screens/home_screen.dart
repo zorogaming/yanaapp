@@ -50,6 +50,7 @@ import '../widgets/skeletons.dart';
 import '../widgets/sale_banner.dart';
 import '../widgets/storefront_widgets.dart';
 import '../widgets/yana_products_loading_screen.dart';
+import '../widgets/category_fallback_image.dart';
 
 // 🎨 BRAND COLORS (Racing Theme)
 const Color primaryRed = Color(0xFFD7FC70);
@@ -2978,7 +2979,7 @@ class _HomeScreenState extends State<HomeScreen>
                                         imageUrl: _homeCategoryImageUrl(
                                           category,
                                         ),
-                                        fallbackImageUrl: '',
+                                        fallbackImageUrl: categoryFallbackAsset,
                                         onTap: () {
                                           Navigator.of(gridContext).push(
                                             MaterialPageRoute(
@@ -3349,6 +3350,7 @@ class _HomeScreenState extends State<HomeScreen>
     final palette = context.appPalette;
     final hasImage = imageUrl.toLowerCase().startsWith("http");
     final hasFallbackImage = fallbackImageUrl.toLowerCase().startsWith("http");
+    final hasFallbackAsset = fallbackImageUrl.isNotEmpty && !hasFallbackImage;
     final radius = BorderRadius.circular(18);
 
     return Material(
@@ -3376,13 +3378,17 @@ class _HomeScreenState extends State<HomeScreen>
                       memCacheWidth: _homeCategoryImageCacheWidth,
                       maxWidthDiskCache: _homeCategoryImageCacheWidth,
                       filterQuality: FilterQuality.low,
-                      placeholder: (_, __) => const Center(
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
+                      placeholder: (_, __) => hasFallbackAsset
+                          ? const CategoryFallbackImage()
+                          : const Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
                       errorWidget: (_, __, ___) => hasFallbackImage
                           ? AppCachedImage(
                               url: fallbackImageUrl,
@@ -3391,6 +3397,8 @@ class _HomeScreenState extends State<HomeScreen>
                               maxWidthDiskCache: _homeCategoryImageCacheWidth,
                               filterQuality: FilterQuality.low,
                             )
+                          : hasFallbackAsset
+                          ? const CategoryFallbackImage()
                           : const Center(
                               child: Icon(
                                 Icons.image_not_supported_outlined,
@@ -3405,7 +3413,9 @@ class _HomeScreenState extends State<HomeScreen>
                       memCacheWidth: _homeCategoryImageCacheWidth,
                       maxWidthDiskCache: _homeCategoryImageCacheWidth,
                       filterQuality: FilterQuality.low,
-                    ),
+                    )
+                  else if (hasFallbackAsset)
+                    const CategoryFallbackImage(),
                 ],
               ),
             ),
@@ -5225,10 +5235,7 @@ class _HomeScreenState extends State<HomeScreen>
                         clipBehavior: Clip.hardEdge,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: palette.border,
-                            width: 1,
-                          ),
+                          border: Border.all(color: palette.border, width: 1),
                           color: palette.isLight ? palette.surface : null,
                           gradient: palette.isLight
                               ? null

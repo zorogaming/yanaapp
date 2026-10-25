@@ -189,6 +189,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   static const String _acceptedUpdateCampaignKey =
       "accepted_update_notice_campaign_id";
   String? _currentAppVersion;
+  bool _pushListenersRegistered = false;
+  bool _pushTokenRegistrationInProgress = false;
   static const Duration _adminUpdateCheckCooldown = Duration(minutes: 5);
 
   @override
@@ -227,6 +229,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       );
       _checkForAppUpdate();
       _checkForAdminTriggeredUpdate(force: true);
+      if (widget.firebaseReady) {
+        unawaited(_registerPushToken());
+      }
       unawaited(
         WalletReminderService.instance.checkRemoteAndShowIfDue().catchError(
           (_) {},
@@ -583,103 +588,190 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<void> _setupFCM() async {
     final FirebaseMessaging messaging = FirebaseMessaging.instance;
 
-    await messaging.setAutoInitEnabled(true);
+    try {
+      await messaging.setAutoInitEnabled(true);
+    } catch (error) {
+      debugPrint('FCM auto initialization could not be enabled: $error');
+    }
 
     if (Platform.isAndroid) {
-      await flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.requestNotificationsPermission();
-    }
-
-    final settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
-
-    print('FCM permission: ${settings.authorizationStatus}');
-
-    final apnsToken = Platform.isIOS ? await messaging.getAPNSToken() : null;
-    final token = await messaging.getToken();
-    if (Platform.isIOS) {
-      print('APNs token: $apnsToken');
-    }
-    print('FCM token: $token');
-    final currentVersion = await _getCurrentAppVersion();
-    await AnalyticsService.instance.setAppVersion(currentVersion);
-    if (token != null && token.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString("fcm_token", token);
-      if (apnsToken != null && apnsToken.isNotEmpty) {
-        await prefs.setString("apns_token", apnsToken);
+      try {
+        await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.requestNotificationsPermission();
+      } catch (error) {
+        debugPrint('Android notification permission request failed: $error');
       }
-      await AnalyticsService.instance.registerPushToken(
-        token: token,
-        platform: Platform.isIOS ? "ios" : "android",
-        apnsToken: apnsToken ?? "",
-      );
     }
-    messaging.onTokenRefresh.listen((newToken) {
-      print('FCM token refreshed: $newToken');
-      SharedPreferences.getInstance().then((prefs) {
-        prefs.setString("fcm_token", newToken);
-      });
-      AnalyticsService.instance.registerPushToken(
-        token: newToken,
-        platform: Platform.isIOS ? "ios" : "android",
-      );
-    });
-    await AuthService().syncFcmTopicForCurrentUser();
 
-    await messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    try {
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+      debugPrint('FCM permission: ${settings.authorizationStatus}');
+    } catch (error) {
+      debugPrint('FCM permission request failed: $error');
+    }
 
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      print(
-        'FCM foreground message received: ${message.messageId} data=${message.data}',
+    // Register message handlers before reading the APNs/FCM tokens. APNs can
+    // take a moment to issue its device token after the permission prompt.
+    if (!_pushListenersRegistered) {
+      _pushListenersRegistered = true;
+      messaging.onTokenRefresh.listen(
+        (newToken) async {
+          final apnsToken = Platform.isIOS
+              ? await _waitForApnsToken(messaging)
+              : null;
+          await _savePushToken(newToken, apnsToken: apnsToken);
+        },
+        onError: (Object error) {
+          debugPrint('FCM token refresh listener failed: $error');
+        },
       );
-      await NotificationInboxService.instance.captureFromRemoteMessage(
-        message,
-        source: 'foreground',
-      );
-      await _captureCouponFromMessage(message);
-      final suppressAlert = CheckoutNotificationSuppressionService.instance
-          .shouldSuppressForegroundAlert(message);
-      if (!suppressAlert) {
-        AppSoundService.instance.playNotificationSound();
-        await _showLocalNotification(message);
-      } else {
+
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
         debugPrint(
-          'Foreground order-created notification sound suppressed on checkout.',
+          'FCM foreground message received: ${message.messageId} data=${message.data}',
+        );
+        await NotificationInboxService.instance.captureFromRemoteMessage(
+          message,
+          source: 'foreground',
+        );
+        await _captureCouponFromMessage(message);
+        final suppressAlert = CheckoutNotificationSuppressionService.instance
+            .shouldSuppressForegroundAlert(message);
+        if (!suppressAlert) {
+          AppSoundService.instance.playNotificationSound();
+          await _showLocalNotification(message);
+        } else {
+          debugPrint(
+            'Foreground order-created notification sound suppressed on checkout.',
+          );
+        }
+      });
+
+      FirebaseMessaging.onMessageOpenedApp.listen((
+        RemoteMessage message,
+      ) async {
+        await NotificationInboxService.instance.captureFromRemoteMessage(
+          message,
+          source: 'opened_app',
+        );
+        await _captureCouponFromMessage(message);
+        debugPrint('Notification clicked. Data: ${message.data}');
+      });
+    }
+
+    try {
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    } catch (error) {
+      debugPrint('Foreground notification presentation setup failed: $error');
+    }
+
+    await _registerPushToken();
+
+    try {
+      await AuthService().syncFcmTopicForCurrentUser();
+    } catch (error) {
+      debugPrint('FCM topic registration failed: $error');
+    }
+
+    try {
+      final initialMessage = await messaging.getInitialMessage();
+      if (initialMessage != null) {
+        await NotificationInboxService.instance.captureFromRemoteMessage(
+          initialMessage,
+          source: 'initial_message',
+        );
+        await _captureCouponFromMessage(initialMessage);
+        debugPrint(
+          'Opened from terminated notification. Data: ${initialMessage.data}',
         );
       }
-    });
+    } catch (error) {
+      debugPrint('Could not read initial notification: $error');
+    }
+  }
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-      await NotificationInboxService.instance.captureFromRemoteMessage(
-        message,
-        source: 'opened_app',
-      );
-      await _captureCouponFromMessage(message);
-      print("Notification clicked. Data: ${message.data}");
-    });
+  Future<void> _registerPushToken() async {
+    if (_pushTokenRegistrationInProgress) return;
+    _pushTokenRegistrationInProgress = true;
+    try {
+      final messaging = FirebaseMessaging.instance;
+      final apnsToken = Platform.isIOS
+          ? await _waitForApnsToken(messaging)
+          : null;
+      if (Platform.isIOS && (apnsToken == null || apnsToken.isEmpty)) {
+        debugPrint(
+          'APNs token is not ready; push token registration will retry when the app resumes.',
+        );
+        return;
+      }
 
-    final initialMessage = await messaging.getInitialMessage();
-    if (initialMessage != null) {
-      await NotificationInboxService.instance.captureFromRemoteMessage(
-        initialMessage,
-        source: 'initial_message',
+      final token = await messaging.getToken().timeout(
+        const Duration(seconds: 10),
       );
-      await _captureCouponFromMessage(initialMessage);
-      print(
-        "Opened from terminated notification. Data: ${initialMessage.data}",
+      if (token == null || token.isEmpty) {
+        debugPrint('FCM did not return a device token.');
+        return;
+      }
+      await _savePushToken(token, apnsToken: apnsToken);
+    } catch (error) {
+      debugPrint('FCM device token registration failed: $error');
+    } finally {
+      _pushTokenRegistrationInProgress = false;
+    }
+  }
+
+  Future<String?> _waitForApnsToken(FirebaseMessaging messaging) async {
+    for (var attempt = 0; attempt < 12; attempt++) {
+      try {
+        final token = await messaging.getAPNSToken().timeout(
+          const Duration(seconds: 2),
+        );
+        if (token != null && token.isNotEmpty) return token;
+      } catch (error) {
+        debugPrint('Waiting for APNs device token (${attempt + 1}/12): $error');
+      }
+      if (attempt < 11) {
+        await Future<void>.delayed(const Duration(milliseconds: 750));
+      }
+    }
+    return null;
+  }
+
+  Future<void> _savePushToken(String token, {String? apnsToken}) async {
+    final normalizedToken = token.trim();
+    if (normalizedToken.isEmpty) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fcm_token', normalizedToken);
+      final normalizedApnsToken = apnsToken?.trim() ?? '';
+      if (normalizedApnsToken.isNotEmpty) {
+        await prefs.setString('apns_token', normalizedApnsToken);
+      }
+      final currentVersion = await _getCurrentAppVersion();
+      await AnalyticsService.instance.setAppVersion(currentVersion);
+      await AnalyticsService.instance.registerPushToken(
+        token: normalizedToken,
+        platform: Platform.isIOS ? 'ios' : 'android',
+        apnsToken: normalizedApnsToken,
       );
+      debugPrint(
+        'Push token registered with app server (${Platform.isIOS ? 'iOS' : 'Android'}).',
+      );
+    } catch (error) {
+      debugPrint('Push token could not be saved to app server: $error');
     }
   }
 
