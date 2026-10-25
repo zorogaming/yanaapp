@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/account_service.dart';
-import '../services/auth_service.dart';
 import '../services/motorcycle_service_booking_service.dart';
 import '../services/data_manager.dart';
 import '../services/motorcycle_service_api.dart';
@@ -23,10 +22,10 @@ class _MotorcycleServiceStationScreenState
     extends State<MotorcycleServiceStationScreen> {
   static const String _customBikeOptionsKey =
       "motorcycle_service_custom_bikes_v1";
+  static const String _workshopWhatsAppPhone = "919166666554";
 
   final DataManager _dataManager = DataManager();
   final AccountService _accountService = AccountService();
-  final MotorcycleServiceApi _motorcycleServiceApi = MotorcycleServiceApi();
   final MotorcycleServiceBookingService _bookingService =
       MotorcycleServiceBookingService();
   final TextEditingController _searchController = TextEditingController();
@@ -37,13 +36,8 @@ class _MotorcycleServiceStationScreenState
   List<String> _bikeOptions = const <String>[];
   String _selectedBike = "";
   _ServicePackage? _selectedPackage;
-  DateTime? _selectedDate;
-  String _selectedTimeSlot = _timeSlots.first;
-  String _servicePriority = "normal";
   bool _pickupAndDrop = false;
-  bool _fetchingEstimate = false;
-  MotorcycleServiceAiEstimate? _aiEstimate;
-  String _estimateStatus = "";
+  bool _sendingEstimateRequest = false;
   String _selectedAirFilterOptionId = "clean";
   bool _pickupDropEnabled = false;
   String _pickupDropCity = "Jaipur";
@@ -142,10 +136,7 @@ class _MotorcycleServiceStationScreenState
       (billing["postcode"] ?? "").toString().trim(),
     ].where((part) => part.isNotEmpty).toList();
 
-    final merged = <String>[
-      ...customBikes,
-      ...bikeOptions,
-    ];
+    final merged = <String>[...customBikes, ...bikeOptions];
     final seen = <String>{};
     final normalized = merged.where((item) {
       final key = item.trim().toLowerCase();
@@ -159,11 +150,13 @@ class _MotorcycleServiceStationScreenState
       _bikeOptions = normalized;
       _selectedBike = selectedBike;
       _selectedPackage = _packages.first.copyWith(
-        serviceCharge: packageCharges[_packages.first.id] ?? _packages.first.serviceCharge,
+        serviceCharge:
+            packageCharges[_packages.first.id] ?? _packages.first.serviceCharge,
       );
       for (var i = 0; i < _packages.length; i++) {
         _packages[i] = _packages[i].copyWith(
-          serviceCharge: packageCharges[_packages[i].id] ?? _packages[i].serviceCharge,
+          serviceCharge:
+              packageCharges[_packages[i].id] ?? _packages[i].serviceCharge,
         );
       }
       _pickupDropEnabled = serviceConfig["pickup_drop_enabled"] == true;
@@ -173,9 +166,6 @@ class _MotorcycleServiceStationScreenState
       _addressController.text = addressParts.join(", ");
       _loading = false;
     });
-    if (selectedBike.trim().isNotEmpty) {
-      await _refreshAiEstimate(selectedBike);
-    }
   }
 
   Future<List<String>> _loadCustomBikes() async {
@@ -199,12 +189,15 @@ class _MotorcycleServiceStationScreenState
     final customBikes = await _loadCustomBikes();
     final merged = <String>[bikeName.trim(), ...customBikes];
     final seen = <String>{};
-    final deduped = merged.where((item) {
-      final key = item.trim().toLowerCase();
-      if (key.isEmpty || seen.contains(key)) return false;
-      seen.add(key);
-      return true;
-    }).take(40).toList();
+    final deduped = merged
+        .where((item) {
+          final key = item.trim().toLowerCase();
+          if (key.isEmpty || seen.contains(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .take(40)
+        .toList();
     await prefs.setString(_customBikeOptionsKey, jsonEncode(deduped));
   }
 
@@ -214,7 +207,6 @@ class _MotorcycleServiceStationScreenState
     setState(() {
       _selectedBike = bikeName;
     });
-    await _refreshAiEstimate(bikeName);
   }
 
   Future<void> _addManualBike() async {
@@ -226,16 +218,12 @@ class _MotorcycleServiceStationScreenState
     if (!mounted) return;
     setState(() {
       _selectedBike = bikeName;
-      _bikeOptions = <String>[
-        ...custom,
-        ..._bikeOptions,
-      ].toSet().toList();
+      _bikeOptions = <String>{...custom, ..._bikeOptions}.toList();
       _manualBikeController.clear();
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Bike model saved in memory")),
-    );
-    await _refreshAiEstimate(bikeName);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Bike model saved in memory")));
   }
 
   void _selectServicePackage(_ServicePackage servicePackage) {
@@ -244,68 +232,13 @@ class _MotorcycleServiceStationScreenState
     });
   }
 
-  Future<void> _refreshAiEstimate(String bikeName) async {
-    final normalized = bikeName.trim();
-    if (normalized.isEmpty) return;
-
-    if (mounted) {
-      setState(() {
-        _fetchingEstimate = true;
-        _aiEstimate = null;
-        _estimateStatus = "Fetching AI estimate...";
-      });
-    }
-
-    final aiEstimate = await _motorcycleServiceApi.fetchEstimate(
-      bikeModel: normalized,
-    );
-    final apiError = _motorcycleServiceApi.lastErrorMessage?.trim() ?? "";
-
-    if (!mounted) return;
-    setState(() {
-      _aiEstimate = aiEstimate;
-      _fetchingEstimate = false;
-      _estimateStatus = aiEstimate == null
-          ? (apiError.isEmpty
-              ? "AI estimate unavailable"
-              : "AI estimate unavailable: $apiError")
-          : "AI estimate ready for $normalized";
-    });
-  }
-
-  Future<void> _pickDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate ?? now,
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 60)),
-    );
-    if (picked == null || !mounted) return;
-    setState(() {
-      _selectedDate = picked;
-    });
-  }
-
-  String _formatDate(DateTime? date) {
-    if (date == null) return "Select date";
-    final day = date.day.toString().padLeft(2, "0");
-    final month = date.month.toString().padLeft(2, "0");
-    return "$day/$month/${date.year}";
-  }
-
-  bool get _isPickupDropAvailableForAddress {
-    if (!_pickupDropEnabled) return false;
-    final city = _pickupDropCity.trim().toLowerCase();
-    final address = _addressController.text.trim().toLowerCase();
-    if (city.isEmpty) return false;
-    return address.contains(city);
-  }
-
-  Future<void> _continueToEstimate() async {
+  Future<void> _askForEstimateOnWhatsApp() async {
+    if (_sendingEstimateRequest) return;
     if (_selectedBike.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select or add a bike model first.")),
+        const SnackBar(
+          content: Text("Please select or add a bike model first."),
+        ),
       );
       return;
     }
@@ -315,81 +248,46 @@ class _MotorcycleServiceStationScreenState
       );
       return;
     }
-    if (_selectedDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select an appointment date.")),
-      );
-      return;
-    }
     if (_pickupAndDrop && _addressController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please enter the pickup address.")),
       );
       return;
     }
-    if (_pickupAndDrop && !_isPickupDropAvailableForAddress) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Pickup & Drop is currently available only for $_pickupDropCity addresses.",
-          ),
-        ),
-      );
-      return;
-    }
+    setState(() {
+      _sendingEstimateRequest = true;
+    });
 
-    if (_aiEstimate == null) {
-      if (!_fetchingEstimate) {
-        await _refreshAiEstimate(_selectedBike);
-      }
-      if (!mounted) return;
-      if (_aiEstimate == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "AI estimate is not available yet. Please retry.",
-            ),
-          ),
-        );
-        return;
-      }
-    }
-
-    final aiEstimate = _aiEstimate;
-    if (aiEstimate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("AI estimate missing. Please retry once."),
-        ),
-      );
-      return;
-    }
-
-    final quote = _buildQuote(
-      bikeModel: _selectedBike,
-      servicePackage: _selectedPackage!,
-      servicePriority: _servicePriority,
-      pickupAndDrop: _pickupAndDrop,
-      aiEstimate: aiEstimate,
+    final servicePackage = _selectedPackage!;
+    final message = Uri.encodeComponent(
+      "Motorcycle Service Estimate Request\n"
+      "Bike: $_selectedBike\n"
+      "Selected Plan: ${servicePackage.title}\n"
+      "Plan Base Charge: Rs ${servicePackage.serviceCharge.toStringAsFixed(0)}\n"
+      "Pickup & Drop Needed: ${_pickupAndDrop ? "Yes" : "No"}\n"
+      "Please call me and share the final estimate.",
     );
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _MotorcycleServiceEstimateScreen(
-          draft: _ServiceBookingDraft(
-            bikeModel: _selectedBike,
-            servicePackage: _selectedPackage!,
-            quote: quote,
-            serviceDate: _selectedDate!,
-            timeSlot: _selectedTimeSlot,
-            servicePriority: _servicePriority,
-            pickupAndDrop: _pickupAndDrop,
-            address: _addressController.text.trim(),
-          ),
-        ),
-      ),
-    );
+    var launched = false;
+    try {
+      final uri = Uri.parse(
+        "https://wa.me/$_workshopWhatsAppPhone?text=$message",
+      );
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      launched = false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sendingEstimateRequest = false;
+        });
+      }
+    }
+    if (!mounted) return;
+    if (!launched) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("WhatsApp could not be opened.")),
+      );
+    }
   }
 
   _ServiceQuote _buildQuote({
@@ -603,8 +501,10 @@ class _MotorcycleServiceStationScreenState
       );
     }
 
-    final subtotal =
-        lineItems.fold<double>(0, (sum, item) => sum + item.amount);
+    final subtotal = lineItems.fold<double>(
+      0,
+      (sum, item) => sum + item.amount,
+    );
     const discount = 200.0;
 
     return _ServiceQuote(
@@ -628,22 +528,22 @@ class _MotorcycleServiceStationScreenState
     final fallbackOilFilter = cc <= 125
         ? 140.0
         : cc <= 160
-            ? 180.0
-            : cc <= 220
-                ? 220.0
-                : cc <= 350
-                    ? 320.0
-                    : 450.0;
+        ? 180.0
+        : cc <= 220
+        ? 220.0
+        : cc <= 350
+        ? 320.0
+        : 450.0;
 
     final fallbackAirFilter = cc <= 125
         ? 190.0
         : cc <= 160
-            ? 240.0
-            : cc <= 220
-                ? 290.0
-                : cc <= 350
-                    ? 390.0
-                    : 560.0;
+        ? 240.0
+        : cc <= 220
+        ? 290.0
+        : cc <= 350
+        ? 390.0
+        : 560.0;
 
     final liters = aiEstimate != null && aiEstimate.oilCapacityLitres > 0
         ? aiEstimate.oilCapacityLitres
@@ -667,9 +567,13 @@ class _MotorcycleServiceStationScreenState
       motulOilCost: motulOilPacks * 950,
       amsOilCost: amsOilPacks * 1250,
       confidence: aiEstimate?.confidence ?? "fallback",
-      notes: aiEstimate?.notes ?? "Showing local estimate because AI API data is unavailable.",
+      notes:
+          aiEstimate?.notes ??
+          "Showing local estimate because AI API data is unavailable.",
       sources: aiEstimate?.sources ?? const <String>[],
-      sourceLabel: aiEstimate == null ? "Local fallback estimate" : "AI web estimate",
+      sourceLabel: aiEstimate == null
+          ? "Local fallback estimate"
+          : "AI web estimate",
     );
   }
 
@@ -750,38 +654,6 @@ class _MotorcycleServiceStationScreenState
       appBar: AppBar(
         title: const Text("Motorcycle Service Station"),
         backgroundColor: const Color(0xFF151826),
-        actions: [
-          IconButton(
-            tooltip: "My Bookings",
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const MotorcycleServiceBookingsScreen(),
-                ),
-              );
-            },
-            icon: const Icon(Icons.receipt_long_rounded),
-          ),
-          FutureBuilder<bool>(
-            future: AuthService().isPrivilegedAdmin(),
-            builder: (context, snapshot) {
-              if (snapshot.data != true) return const SizedBox.shrink();
-              return IconButton(
-                tooltip: "Admin Bookings",
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const MotorcycleServiceAdminScreen(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.admin_panel_settings_rounded),
-              );
-            },
-          ),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -803,10 +675,7 @@ class _MotorcycleServiceStationScreenState
                       const SizedBox(height: 6),
                       Text(
                         "Select from the list or add the model manually. The selected bike model will be saved for future use.",
-                        style: TextStyle(
-                          color: palette.textMuted,
-                          height: 1.4,
-                        ),
+                        style: TextStyle(color: palette.textMuted, height: 1.4),
                       ),
                       const SizedBox(height: 14),
                       TextField(
@@ -820,11 +689,12 @@ class _MotorcycleServiceStationScreenState
                       ),
                       const SizedBox(height: 12),
                       Theme(
-                        data: Theme.of(context).copyWith(
-                          canvasColor: const Color(0xFF1C1F2E),
-                        ),
+                        data: Theme.of(
+                          context,
+                        ).copyWith(canvasColor: const Color(0xFF1C1F2E)),
                         child: DropdownButtonFormField<String>(
-                          value: _bikeOptions.contains(_selectedBike) &&
+                          value:
+                              _bikeOptions.contains(_selectedBike) &&
                                   _selectedBike.trim().isNotEmpty
                               ? _selectedBike
                               : null,
@@ -836,8 +706,9 @@ class _MotorcycleServiceStationScreenState
                           ),
                           items: _bikeOptions
                               .where((bike) {
-                                final query =
-                                    _searchController.text.trim().toLowerCase();
+                                final query = _searchController.text
+                                    .trim()
+                                    .toLowerCase();
                                 if (query.isEmpty) return true;
                                 return bike.toLowerCase().contains(query);
                               })
@@ -898,49 +769,6 @@ class _MotorcycleServiceStationScreenState
                             ],
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          _estimateStatus.isEmpty
-                              ? "AI estimate will load for this bike model."
-                              : _estimateStatus,
-                          style: TextStyle(
-                            color: _aiEstimate == null
-                                ? Colors.white60
-                                : const Color(0xFF86EFAC),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            if (_fetchingEstimate)
-                              const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white70,
-                                  ),
-                                ),
-                              ),
-                            if (_fetchingEstimate) const SizedBox(width: 10),
-                            if (!_fetchingEstimate)
-                              TextButton.icon(
-                                onPressed: () => _refreshAiEstimate(_selectedBike),
-                                icon: const Icon(Icons.refresh_rounded, size: 18),
-                                label: const Text("Retry"),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: const Color(0xFF7DD3FC),
-                                  padding: EdgeInsets.zero,
-                                  minimumSize: const Size(0, 32),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                          ],
-                        ),
                       ],
                     ],
                   ),
@@ -967,108 +795,7 @@ class _MotorcycleServiceStationScreenState
                     child: _buildServiceCard(servicePackage, selected),
                   );
                 }),
-                const SizedBox(height: 2),
-                if (_selectedBike.trim().isNotEmpty) ...[
-                  _buildAirFilterOptionsCard(),
-                  const SizedBox(height: 16),
-                ],
                 const SizedBox(height: 4),
-                _sectionCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Book Appointment",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      InkWell(
-                        onTap: _pickDate,
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF11131F),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.calendar_month_rounded,
-                                color: Colors.white70,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                _formatDate(_selectedDate),
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _selectedTimeSlot,
-                        dropdownColor: const Color(0xFF1C1F2E),
-                        decoration: _inputDecoration(
-                          hintText: "Select time slot",
-                          prefixIcon: Icons.access_time_rounded,
-                        ),
-                        items: _timeSlots
-                            .map(
-                              (slot) => DropdownMenuItem<String>(
-                                value: slot,
-                                child: Text(
-                                  slot,
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _selectedTimeSlot = value;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _choiceTile(
-                              title: "Normal",
-                              selected: _servicePriority == "normal",
-                              onTap: () {
-                                setState(() {
-                                  _servicePriority = "normal";
-                                });
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _choiceTile(
-                              title: "Urgent",
-                              selected: _servicePriority == "urgent",
-                              onTap: () {
-                                setState(() {
-                                  _servicePriority = "urgent";
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
                 _sectionCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1077,7 +804,7 @@ class _MotorcycleServiceStationScreenState
                         children: [
                           const Expanded(
                             child: Text(
-                              "Pickup & Drop Option",
+                              "Request Estimate",
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 18,
@@ -1090,24 +817,20 @@ class _MotorcycleServiceStationScreenState
                             onChanged: !_pickupDropEnabled
                                 ? null
                                 : (value) {
-                              setState(() {
-                                  if (value && !_isPickupDropAvailableForAddress) {
-                                    _pickupAndDrop = false;
-                                  } else {
-                                    _pickupAndDrop = value;
-                                  }
-                              });
-                                },
+                                    setState(() {
+                                      _pickupAndDrop = value;
+                                    });
+                                  },
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Text(
                         !_pickupDropEnabled
-                            ? "Pickup & Drop is currently disabled by admin."
+                            ? "Select a plan and send details on WhatsApp. We will call back with the final estimate."
                             : _pickupAndDrop
-                                ? "Extra charge: Rs 149. Available only for $_pickupDropCity addresses."
-                                : "Pickup & Drop is available only for $_pickupDropCity addresses approved by admin.",
+                            ? "Pickup & Drop request will be shared. We will confirm availability on call."
+                            : "Enable pickup & drop if needed, then send the request on WhatsApp.",
                         style: const TextStyle(color: Colors.white70),
                       ),
                       const SizedBox(height: 12),
@@ -1116,7 +839,8 @@ class _MotorcycleServiceStationScreenState
                         maxLines: 2,
                         style: const TextStyle(color: Colors.white),
                         decoration: _inputDecoration(
-                          hintText: "Address auto fill / edit here",
+                          hintText:
+                              "Pickup address (only if pickup & drop is needed)",
                           prefixIcon: Icons.location_on_outlined,
                         ),
                       ),
@@ -1127,7 +851,9 @@ class _MotorcycleServiceStationScreenState
                 SizedBox(
                   height: 54,
                   child: ElevatedButton(
-                    onPressed: _fetchingEstimate ? null : _continueToEstimate,
+                    onPressed: _sendingEstimateRequest
+                        ? null
+                        : _askForEstimateOnWhatsApp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFF5A36),
                       foregroundColor: Colors.white,
@@ -1135,7 +861,7 @@ class _MotorcycleServiceStationScreenState
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    child: _fetchingEstimate
+                    child: _sendingEstimateRequest
                         ? const SizedBox(
                             width: 22,
                             height: 22,
@@ -1147,7 +873,7 @@ class _MotorcycleServiceStationScreenState
                             ),
                           )
                         : const Text(
-                            "Continue To Price Estimate",
+                            "Ask For Estimate On WhatsApp",
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
@@ -1240,7 +966,10 @@ class _MotorcycleServiceStationScreenState
                     Expanded(
                       child: Text(
                         feature,
-                        style: const TextStyle(color: Colors.white70, height: 1.4),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -1282,13 +1011,8 @@ class _MotorcycleServiceStationScreenState
   }
 
   Widget _buildAirFilterOptionsCard() {
-    final aiEstimate = _aiEstimate;
-    final estimate = aiEstimate == null
-        ? null
-        : _buildMarketEstimate(_selectedBike, aiEstimate: aiEstimate);
-    final options = estimate == null
-        ? const <_AirFilterOption>[]
-        : _buildAirFilterOptions(estimate);
+    final estimate = _buildMarketEstimate(_selectedBike);
+    final options = _buildAirFilterOptions(estimate);
 
     return _sectionCard(
       child: Column(
@@ -1308,11 +1032,9 @@ class _MotorcycleServiceStationScreenState
             style: TextStyle(color: Colors.white70, height: 1.4),
           ),
           const SizedBox(height: 12),
-          if (_fetchingEstimate)
-            _buildEstimatePreviewSkeleton()
-          else if (options.isEmpty)
+          if (options.isEmpty)
             const Text(
-              "Filter options will appear here after the AI estimate is loaded.",
+              "Filter options will appear after a bike model is selected.",
               style: TextStyle(color: Colors.white60),
             )
           else
@@ -1393,7 +1115,9 @@ class _MotorcycleServiceStationScreenState
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFFF5A36) : const Color(0xFF11131F),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? Colors.transparent : Colors.white10),
+          border: Border.all(
+            color: selected ? Colors.transparent : Colors.white10,
+          ),
         ),
         child: Center(
           child: Text(
@@ -1513,10 +1237,7 @@ class _MotorcycleServiceStationScreenState
 }
 
 class _MotorcycleServiceEstimateScreen extends StatefulWidget {
-  const _MotorcycleServiceEstimateScreen({
-    super.key,
-    required this.draft,
-  });
+  const _MotorcycleServiceEstimateScreen({required this.draft});
 
   final _ServiceBookingDraft draft;
 
@@ -1563,7 +1284,8 @@ class _MotorcycleServiceEstimateScreenState
       "payment_note":
           "Pay at workshop only. Diagnosis charge refundable if diagnosis cannot be completed.",
       "customer_name":
-          "${(billing["first_name"] ?? "").toString().trim()} ${(billing["last_name"] ?? "").toString().trim()}".trim(),
+          "${(billing["first_name"] ?? "").toString().trim()} ${(billing["last_name"] ?? "").toString().trim()}"
+              .trim(),
       "customer_phone": (billing["phone"] ?? "").toString().trim(),
       "customer_email": (billing["email"] ?? customer["email"] ?? "")
           .toString()
@@ -1646,7 +1368,7 @@ class _MotorcycleServiceEstimateScreenState
       "Final Total: ${_money(widget.draft.quote.total)}\n"
       "Payment: Pay at workshop\n"
       "Workshop Address: $_workshopAddress\n"
-      "Workshop Phone: $_workshopPhone"
+      "Workshop Phone: $_workshopPhone",
     );
     final uri = Uri.parse("https://wa.me/$phone?text=$message");
     await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -1763,7 +1485,10 @@ class _MotorcycleServiceEstimateScreenState
                 ...quote.lineItems.map((item) => _quoteRow(item)),
                 const Divider(color: Colors.white12, height: 24),
                 _infoRow("Service + add-ons total", _money(quote.subtotal)),
-                _infoRow("Discount (Rs 200 app offer)", "-${_money(quote.discount)}"),
+                _infoRow(
+                  "Discount (Rs 200 app offer)",
+                  "-${_money(quote.discount)}",
+                ),
                 const SizedBox(height: 8),
                 _infoRow(
                   "Final total",
@@ -1875,7 +1600,10 @@ class _MotorcycleServiceEstimateScreenState
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       item.subtitle,
-                      style: const TextStyle(color: Colors.white60, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
               ],
@@ -1912,7 +1640,9 @@ class _MotorcycleServiceEstimateScreenState
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFFF5A36) : const Color(0xFF11131F),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? Colors.transparent : Colors.white10),
+          border: Border.all(
+            color: selected ? Colors.transparent : Colors.white10,
+          ),
         ),
         child: Row(
           children: [
@@ -1962,10 +1692,7 @@ class _MotorcycleServiceEstimateScreenState
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(color: Colors.white70),
-            ),
+            child: Text(label, style: const TextStyle(color: Colors.white70)),
           ),
           Text(
             value,
@@ -2177,81 +1904,100 @@ class _MotorcycleServiceBookingsScreenState
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _bookings.isEmpty
-              ? const Center(
-                  child: Text(
-                    "No service bookings yet.",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                )
-              : ListView.builder(
+          ? const Center(
+              child: Text(
+                "No service bookings yet.",
+                style: TextStyle(color: Colors.white70),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _bookings.length,
+              itemBuilder: (context, index) {
+                final booking = _bookings[index];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(16),
-                  itemCount: _bookings.length,
-                  itemBuilder: (context, index) {
-                    final booking = _bookings[index];
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1C1F2E),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.white10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1C1F2E),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (booking["package_title"] ?? "-").toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            (booking["package_title"] ?? "-").toString(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          _bookingInfo("Booking ID", (booking["booking_id"] ?? "-").toString()),
-                          _bookingInfo("Bike", (booking["bike_model"] ?? "-").toString()),
-                          _bookingInfo("Date", _formatBookingDate((booking["service_date"] ?? "").toString())),
-                          _bookingInfo("Time", (booking["time_slot"] ?? "-").toString()),
-                          _bookingInfo("Address", (booking["address"] ?? "-").toString()),
-                          _bookingInfo(
-                            "Workshop address",
-                            (booking["workshop_address"] ??
-                                    "Shop no. 5, Hanuman Market, 200ft, Airport Rd, near 7no choraha, near Mahima Paradise, Ravindra Nagar - A, Jagatpura, Jaipur, Rajasthan 302033")
-                                .toString(),
-                          ),
-                          _bookingInfo(
-                            "Workshop phone",
-                            (booking["workshop_phone"] ?? "9166666554")
-                                .toString(),
-                          ),
-                          _bookingInfo(
-                            "Service done on",
-                            _serviceRecordValue(
-                              booking["completed_service_date"],
-                              formatter: _formatBookingDate,
-                            ),
-                          ),
-                          _bookingInfo(
-                            "Service done at",
-                            _serviceRecordValue(
-                              booking["service_done_km"],
-                              suffix: "km",
-                            ),
-                          ),
-                          _bookingInfo(
-                            "Next service due at",
-                            _serviceRecordValue(
-                              booking["next_service_due_km"],
-                              suffix: "km",
-                            ),
-                          ),
-                          _bookingInfo("Payment", "Pay at workshop"),
-                          _bookingInfo("Total", "Rs ${double.tryParse((booking["total"] ?? "0").toString())?.toStringAsFixed(0) ?? "0"}"),
-                        ],
+                      const SizedBox(height: 8),
+                      _bookingInfo(
+                        "Booking ID",
+                        (booking["booking_id"] ?? "-").toString(),
                       ),
-                    );
-                  },
-                ),
+                      _bookingInfo(
+                        "Bike",
+                        (booking["bike_model"] ?? "-").toString(),
+                      ),
+                      _bookingInfo(
+                        "Date",
+                        _formatBookingDate(
+                          (booking["service_date"] ?? "").toString(),
+                        ),
+                      ),
+                      _bookingInfo(
+                        "Time",
+                        (booking["time_slot"] ?? "-").toString(),
+                      ),
+                      _bookingInfo(
+                        "Address",
+                        (booking["address"] ?? "-").toString(),
+                      ),
+                      _bookingInfo(
+                        "Workshop address",
+                        (booking["workshop_address"] ??
+                                "Shop no. 5, Hanuman Market, 200ft, Airport Rd, near 7no choraha, near Mahima Paradise, Ravindra Nagar - A, Jagatpura, Jaipur, Rajasthan 302033")
+                            .toString(),
+                      ),
+                      _bookingInfo(
+                        "Workshop phone",
+                        (booking["workshop_phone"] ?? "9166666554").toString(),
+                      ),
+                      _bookingInfo(
+                        "Service done on",
+                        _serviceRecordValue(
+                          booking["completed_service_date"],
+                          formatter: _formatBookingDate,
+                        ),
+                      ),
+                      _bookingInfo(
+                        "Service done at",
+                        _serviceRecordValue(
+                          booking["service_done_km"],
+                          suffix: "km",
+                        ),
+                      ),
+                      _bookingInfo(
+                        "Next service due at",
+                        _serviceRecordValue(
+                          booking["next_service_due_km"],
+                          suffix: "km",
+                        ),
+                      ),
+                      _bookingInfo("Payment", "Pay at workshop"),
+                      _bookingInfo(
+                        "Total",
+                        "Rs ${double.tryParse((booking["total"] ?? "0").toString())?.toStringAsFixed(0) ?? "0"}",
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 
@@ -2263,16 +2009,10 @@ class _MotorcycleServiceBookingsScreenState
         children: [
           SizedBox(
             width: 92,
-            child: Text(
-              label,
-              style: const TextStyle(color: Colors.white60),
-            ),
+            child: Text(label, style: const TextStyle(color: Colors.white60)),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(color: Colors.white),
-            ),
+            child: Text(value, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -2326,7 +2066,8 @@ class _MotorcycleServiceAdminScreenState
   final TextEditingController _pickupDropCityController =
       TextEditingController();
   String _selectedStatusFilter = "All";
-  final TextEditingController _bookingSearchController = TextEditingController();
+  final TextEditingController _bookingSearchController =
+      TextEditingController();
 
   List<Map<String, dynamic>> _bookings = <Map<String, dynamic>>[];
   bool _loading = true;
@@ -2354,12 +2095,14 @@ class _MotorcycleServiceAdminScreenState
     if (!mounted) return;
     setState(() {
       _bookings = bookings;
-      _essentialController.text =
-          (charges["essential"] ?? 699).toStringAsFixed(0);
-      _performanceController.text =
-          (charges["performance"] ?? 1199).toStringAsFixed(0);
-      _ultimateController.text =
-          (charges["ultimate"] ?? 1899).toStringAsFixed(0);
+      _essentialController.text = (charges["essential"] ?? 699).toStringAsFixed(
+        0,
+      );
+      _performanceController.text = (charges["performance"] ?? 1199)
+          .toStringAsFixed(0);
+      _ultimateController.text = (charges["ultimate"] ?? 1899).toStringAsFixed(
+        0,
+      );
       _pickupDropEnabled = serviceConfig["pickup_drop_enabled"] == true;
       _pickupDropCityController.text =
           (serviceConfig["pickup_drop_city"] ?? "Jaipur").toString();
@@ -2370,13 +2113,14 @@ class _MotorcycleServiceAdminScreenState
   Future<void> _saveCharges() async {
     await _bookingService.savePackageCharges({
       "essential": double.tryParse(_essentialController.text.trim()) ?? 699,
-      "performance": double.tryParse(_performanceController.text.trim()) ?? 1199,
+      "performance":
+          double.tryParse(_performanceController.text.trim()) ?? 1199,
       "ultimate": double.tryParse(_ultimateController.text.trim()) ?? 1899,
     });
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Service charges updated")),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Service charges updated")));
   }
 
   Future<void> _saveServiceConfig() async {
@@ -2526,7 +2270,10 @@ class _MotorcycleServiceAdminScreenState
                         decoration: InputDecoration(
                           hintText: "Search bookings",
                           hintStyle: const TextStyle(color: Colors.white38),
-                          prefixIcon: const Icon(Icons.search, color: Colors.white70),
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: Colors.white70,
+                          ),
                           filled: true,
                           fillColor: const Color(0xFF11131F),
                           border: OutlineInputBorder(
@@ -2582,13 +2329,34 @@ class _MotorcycleServiceAdminScreenState
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                _adminInfo("Customer", (booking["customer_name"] ?? "-").toString()),
-                                _adminInfo("Phone", (booking["customer_phone"] ?? "-").toString()),
-                                _adminInfo("Email", (booking["customer_email"] ?? "-").toString()),
-                                _adminInfo("Bike", (booking["bike_model"] ?? "-").toString()),
-                                _adminInfo("Date", (booking["service_date"] ?? "-").toString()),
-                                _adminInfo("Time", (booking["time_slot"] ?? "-").toString()),
-                                _adminInfo("Address", (booking["address"] ?? "-").toString()),
+                                _adminInfo(
+                                  "Customer",
+                                  (booking["customer_name"] ?? "-").toString(),
+                                ),
+                                _adminInfo(
+                                  "Phone",
+                                  (booking["customer_phone"] ?? "-").toString(),
+                                ),
+                                _adminInfo(
+                                  "Email",
+                                  (booking["customer_email"] ?? "-").toString(),
+                                ),
+                                _adminInfo(
+                                  "Bike",
+                                  (booking["bike_model"] ?? "-").toString(),
+                                ),
+                                _adminInfo(
+                                  "Date",
+                                  (booking["service_date"] ?? "-").toString(),
+                                ),
+                                _adminInfo(
+                                  "Time",
+                                  (booking["time_slot"] ?? "-").toString(),
+                                ),
+                                _adminInfo(
+                                  "Address",
+                                  (booking["address"] ?? "-").toString(),
+                                ),
                                 _adminInfo(
                                   "Workshop Address",
                                   (booking["workshop_address"] ??
@@ -2621,16 +2389,27 @@ class _MotorcycleServiceAdminScreenState
                                     suffix: "km",
                                   ),
                                 ),
-                                _adminInfo("Air Filter", (booking["air_filter_option"] ?? "-").toString()),
-                                _adminInfo("Total", "Rs ${double.tryParse((booking["total"] ?? "0").toString())?.toStringAsFixed(0) ?? "0"}"),
+                                _adminInfo(
+                                  "Air Filter",
+                                  (booking["air_filter_option"] ?? "-")
+                                      .toString(),
+                                ),
+                                _adminInfo(
+                                  "Total",
+                                  "Rs ${double.tryParse((booking["total"] ?? "0").toString())?.toStringAsFixed(0) ?? "0"}",
+                                ),
                                 const SizedBox(height: 10),
                                 DropdownButtonFormField<String>(
-                                  value: _normalizeStatus((booking["status"] ?? "Hold").toString()),
+                                  value: _normalizeStatus(
+                                    (booking["status"] ?? "Hold").toString(),
+                                  ),
                                   dropdownColor: const Color(0xFF1C1F2E),
                                   style: const TextStyle(color: Colors.white),
                                   decoration: InputDecoration(
                                     labelText: "Booking status",
-                                    labelStyle: const TextStyle(color: Colors.white70),
+                                    labelStyle: const TextStyle(
+                                      color: Colors.white70,
+                                    ),
                                     filled: true,
                                     fillColor: const Color(0xFF1A1D2A),
                                     border: OutlineInputBorder(
@@ -2650,7 +2429,8 @@ class _MotorcycleServiceAdminScreenState
                                   onChanged: (value) async {
                                     if (value == null) return;
                                     await _bookingService.updateBookingStatus(
-                                      bookingId: (booking["booking_id"] ?? "").toString(),
+                                      bookingId: (booking["booking_id"] ?? "")
+                                          .toString(),
                                       status: value,
                                     );
                                     await _load();
@@ -2665,7 +2445,9 @@ class _MotorcycleServiceAdminScreenState
                                   label: const Text("Update Service Record"),
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: Colors.white,
-                                    side: const BorderSide(color: Colors.white24),
+                                    side: const BorderSide(
+                                      color: Colors.white24,
+                                    ),
                                   ),
                                 ),
                                 _buildAdminQuotation(booking),
@@ -2749,26 +2531,26 @@ class _MotorcycleServiceAdminScreenState
       context: context,
       builder: (modalContext) {
         return _ServiceRecordEditorDialog(
-          initialServiceDate:
-              (booking["completed_service_date"] ?? "").toString().trim(),
-          initialServiceDoneKm:
-              (booking["service_done_km"] ?? "").toString().trim(),
-          initialNextServiceDueKm:
-              (booking["next_service_due_km"] ?? "").toString().trim(),
-          onSave: (
-            completedServiceDate,
-            serviceDoneKm,
-            nextServiceDueKm,
-          ) async {
-            await _bookingService.updateBookingAdminDetails(
-              bookingId: (booking["booking_id"] ?? "").toString(),
-              completedServiceDate: completedServiceDate,
-              serviceDoneKm: serviceDoneKm,
-              nextServiceDueKm: nextServiceDueKm,
-            );
-            if (!mounted) return;
-            await _load();
-          },
+          initialServiceDate: (booking["completed_service_date"] ?? "")
+              .toString()
+              .trim(),
+          initialServiceDoneKm: (booking["service_done_km"] ?? "")
+              .toString()
+              .trim(),
+          initialNextServiceDueKm: (booking["next_service_due_km"] ?? "")
+              .toString()
+              .trim(),
+          onSave:
+              (completedServiceDate, serviceDoneKm, nextServiceDueKm) async {
+                await _bookingService.updateBookingAdminDetails(
+                  bookingId: (booking["booking_id"] ?? "").toString(),
+                  completedServiceDate: completedServiceDate,
+                  serviceDoneKm: serviceDoneKm,
+                  nextServiceDueKm: nextServiceDueKm,
+                );
+                if (!mounted) return;
+                await _load();
+              },
         );
       },
     );
@@ -2810,16 +2592,17 @@ class _MotorcycleServiceAdminScreenState
         children: [
           const Text(
             "Quotation",
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
           if (normalizedItems.isEmpty)
             const Text(
               "Detailed line items are not available for this booking, but the quotation summary is shown below.",
-              style: TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
+              style: TextStyle(
+                color: Colors.white60,
+                fontSize: 12,
+                height: 1.4,
+              ),
             ),
           ...normalizedItems.map((item) {
             final amount =
@@ -2863,8 +2646,14 @@ class _MotorcycleServiceAdminScreenState
           }),
           if (normalizedItems.isNotEmpty)
             const Divider(color: Colors.white12, height: 20),
-          _adminQuoteSummaryRow("Subtotal", "Rs ${subtotal.toStringAsFixed(0)}"),
-          _adminQuoteSummaryRow("Discount", "-Rs ${discount.toStringAsFixed(0)}"),
+          _adminQuoteSummaryRow(
+            "Subtotal",
+            "Rs ${subtotal.toStringAsFixed(0)}",
+          ),
+          _adminQuoteSummaryRow(
+            "Discount",
+            "-Rs ${discount.toStringAsFixed(0)}",
+          ),
           _adminQuoteSummaryRow(
             "Final total",
             "Rs ${total.toStringAsFixed(0)}",
@@ -2924,7 +2713,8 @@ class _ServiceRecordEditorDialog extends StatefulWidget {
       _ServiceRecordEditorDialogState();
 }
 
-class _ServiceRecordEditorDialogState extends State<_ServiceRecordEditorDialog> {
+class _ServiceRecordEditorDialogState
+    extends State<_ServiceRecordEditorDialog> {
   late final TextEditingController _dateController;
   late final TextEditingController _serviceDoneKmController;
   late final TextEditingController _nextServiceDueKmController;
@@ -2934,10 +2724,12 @@ class _ServiceRecordEditorDialogState extends State<_ServiceRecordEditorDialog> 
   void initState() {
     super.initState();
     _dateController = TextEditingController(text: widget.initialServiceDate);
-    _serviceDoneKmController =
-        TextEditingController(text: widget.initialServiceDoneKm);
-    _nextServiceDueKmController =
-        TextEditingController(text: widget.initialNextServiceDueKm);
+    _serviceDoneKmController = TextEditingController(
+      text: widget.initialServiceDoneKm,
+    );
+    _nextServiceDueKmController = TextEditingController(
+      text: widget.initialNextServiceDueKm,
+    );
   }
 
   @override

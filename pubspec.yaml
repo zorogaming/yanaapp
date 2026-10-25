@@ -43,6 +43,7 @@ dependencies:
   marquee: any
   mobile_scanner: any
   cached_network_image: any
+  flutter_cache_manager: any
   url_launcher: any
   package_info_plus: ^8.3.0
   intl_phone_field: any
@@ -86,6 +87,12 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets:
+    - assets/home_category_light/
+    - assets/top_brand_logos/
+    - assets/home_nav/
+    - assets/header/yana_logo.png
+    - assets/sale/
+    - assets/branding/community_rider.png
     - assets/icon/
     - assets/ordersound.mp3
     - assets/Yana.mp3
@@ -137,6 +144,7 @@ flutter_native_splash:
   android_12:
     color: "#001827"
     image: assets/icon/logo.png
+
 
 
 

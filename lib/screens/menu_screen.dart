@@ -463,28 +463,10 @@ class _MenuScreenState extends State<MenuScreen> {
     switch (mode) {
       case AppThemeMode.midnight:
         return 'Dark premium storefront look';
-      case AppThemeMode.cherryRed:
-        return 'Dark storefront with cherry red accents';
-      case AppThemeMode.cherryBlue:
-        return 'Dark storefront with blue accents';
-      case AppThemeMode.facebookBlue:
-        return 'Deep social blue storefront with bold premium contrast';
-      case AppThemeMode.cherryGreen:
-        return 'Dark storefront with green accents';
       case AppThemeMode.cherryYellow:
         return 'Dark storefront with yellow accents';
-      case AppThemeMode.cherryPink:
-        return 'Dark storefront with pink accents';
-      case AppThemeMode.blushRed:
-        return 'Light storefront with soft red accents';
-      case AppThemeMode.skyBlue:
-        return 'Light storefront with airy blue accents';
-      case AppThemeMode.mintGreen:
-        return 'Light storefront with fresh green accents';
-      case AppThemeMode.rosePink:
-        return 'Light storefront with rose pink accents';
-      case AppThemeMode.white:
-        return 'Clean light storefront with soft warm accents';
+      case AppThemeMode.lightTheme:
+        return 'Bright storefront with lime accents and dark text';
     }
   }
 

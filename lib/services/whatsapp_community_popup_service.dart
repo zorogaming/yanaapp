@@ -50,4 +50,3 @@ class WhatsAppCommunityPopupConfig {
   final bool enabled;
   final String inviteUrl;
 }
-

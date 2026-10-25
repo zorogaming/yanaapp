@@ -2405,6 +2405,7 @@ class WooService {
     required String collectionKey,
     int page = 1,
     int perPage = 20,
+    bool statusOnly = false,
   }) async {
     final normalizedKey = collectionKey.trim().toLowerCase();
     if (normalizedKey.isEmpty) {
@@ -2413,7 +2414,7 @@ class WooService {
 
     try {
       final uri = _buildWpV1Uri(
-        "sale-collection?type=$normalizedKey&page=$page&per_page=$perPage",
+        "sale-collection?type=$normalizedKey&page=$page&per_page=$perPage${statusOnly ? '&status_only=1' : ''}",
       );
       final response = await http
           .get(uri, headers: _wcHeaders())

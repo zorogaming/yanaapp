@@ -122,11 +122,12 @@ class _CartScreenState extends State<CartScreen> {
     final softSurface = palette.surfaceStrong;
     final darkText = palette.textPrimary;
     final mutedText = palette.textMuted;
-    final actionBlue = palette.accent;
+    final actionBlue = palette.isLight ? palette.accentStrong : palette.accent;
     final priceGreen = palette.success;
     final orderColor = palette.highlight;
-    final orderTextColor =
-        orderColor.computeLuminance() > 0.45 ? Colors.black : Colors.white;
+    final orderTextColor = orderColor.computeLuminance() > 0.45
+        ? Colors.black
+        : Colors.white;
 
     return Scaffold(
       backgroundColor: pageBg,
@@ -183,7 +184,7 @@ class _CartScreenState extends State<CartScreen> {
                           child: Text(
                             wishlist.items.length.toString(),
                             style: TextStyle(
-                              color: Colors.white,
+                              color: palette.onAccent,
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                             ),
@@ -216,7 +217,8 @@ class _CartScreenState extends State<CartScreen> {
                     ),
                     const SizedBox(height: 14),
                     OutlinedButton.icon(
-                      onPressed: widget.onContinueShopping ??
+                      onPressed:
+                          widget.onContinueShopping ??
                           () {
                             if (Navigator.canPop(context)) {
                               Navigator.pop(context);
@@ -303,10 +305,7 @@ class _CartScreenState extends State<CartScreen> {
                           ),
                           foregroundColor: actionBlue,
                         ),
-                        icon: Icon(
-                          Icons.favorite_rounded,
-                          size: 16,
-                        ),
+                        icon: Icon(Icons.favorite_rounded, size: 16),
                         label: Text(
                           "Wishlist ${wishlist.items.isEmpty ? '' : '(${wishlist.items.length})'}"
                               .trim(),
@@ -333,7 +332,9 @@ class _CartScreenState extends State<CartScreen> {
                       return _buildCartSuggestions(
                         context: context,
                         cart: cart,
-                        cartProductIds: cart.items.map((item) => item.id).toSet(),
+                        cartProductIds: cart.items
+                            .map((item) => item.id)
+                            .toSet(),
                         cardBorder: cardBorder,
                         cardSurface: cardSurface,
                         softSurface: softSurface,
@@ -431,7 +432,8 @@ class _CartScreenState extends State<CartScreen> {
                                 const SizedBox(width: 11),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         item.name,
@@ -487,7 +489,9 @@ class _CartScreenState extends State<CartScreen> {
                                         decoration: BoxDecoration(
                                           color: softSurface,
                                           border: Border.all(color: cardBorder),
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
@@ -497,8 +501,8 @@ class _CartScreenState extends State<CartScreen> {
                                                   VisualDensity.compact,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                horizontal: 7,
-                                              ),
+                                                    horizontal: 7,
+                                                  ),
                                               constraints:
                                                   const BoxConstraints(),
                                               icon: Icon(
@@ -530,8 +534,8 @@ class _CartScreenState extends State<CartScreen> {
                                                   VisualDensity.compact,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                horizontal: 7,
-                                              ),
+                                                    horizontal: 7,
+                                                  ),
                                               constraints:
                                                   const BoxConstraints(),
                                               icon: Icon(
@@ -635,17 +639,19 @@ class _CartScreenState extends State<CartScreen> {
                                         vertical: 8,
                                       ),
                                     ),
-                                    icon: const Icon(
+                                    icon: Icon(
                                       Icons.flash_on_rounded,
                                       size: 16,
+                                      color: actionBlue,
                                     ),
-                                    label: const Text(
+                                    label: Text(
                                       "Buy now",
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w800,
+                                        color: actionBlue,
                                       ),
                                     ),
                                   ),
@@ -706,7 +712,8 @@ class _CartScreenState extends State<CartScreen> {
                       ),
                     ),
                     TextButton(
-                      onPressed: widget.onContinueShopping ??
+                      onPressed:
+                          widget.onContinueShopping ??
                           () {
                             if (Navigator.canPop(context)) {
                               Navigator.pop(context);
@@ -716,11 +723,12 @@ class _CartScreenState extends State<CartScreen> {
                         foregroundColor: actionBlue,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
-                      child: const Text(
+                      child: Text(
                         "Continue Shopping",
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
+                          color: actionBlue,
                         ),
                       ),
                     ),
@@ -891,11 +899,7 @@ class _CartScreenState extends State<CartScreen> {
             children: [
               Row(
                 children: [
-                  Icon(
-                    Icons.history_rounded,
-                    color: actionBlue,
-                    size: 18,
-                  ),
+                  Icon(Icons.history_rounded, color: actionBlue, size: 18),
                   const SizedBox(width: 7),
                   Text(
                     "Recently viewed",
@@ -980,10 +984,7 @@ class _CartScreenState extends State<CartScreen> {
                   color: softSurface,
                   borderRadius: BorderRadius.circular(7),
                 ),
-                child: AppCachedImage(
-                  url: product.image,
-                  fit: BoxFit.contain,
-                ),
+                child: AppCachedImage(url: product.image, fit: BoxFit.contain),
               ),
               const SizedBox(height: 6),
               SizedBox(
@@ -1030,17 +1031,18 @@ class _CartScreenState extends State<CartScreen> {
                         },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: actionBlue,
-                    side: BorderSide(color: actionBlue.withOpacity(0.45)),
+                    side: BorderSide(color: actionBlue.withOpacity(0.8)),
                     padding: EdgeInsets.zero,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(5),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     "Add",
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
+                      color: actionBlue,
                     ),
                   ),
                 ),

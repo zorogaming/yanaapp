@@ -10,14 +10,15 @@ class Product {
   final String shortDescription;
   final String type;
   final String sku;
-  final String slug;
   final String permalink;
+  final String slug;
   final String stockStatus;
   final bool isInStock;
   final bool priceDropped;
   final double? previousPrice;
   final double averageRating;
   final int ratingCount;
+  final String? saleBadgeLabel;
 
   Product({
     required this.id,
@@ -31,14 +32,15 @@ class Product {
     required this.shortDescription,
     required this.type,
     required this.sku,
+    this.permalink = '',
+    this.slug = '',
     required this.stockStatus,
     required this.isInStock,
-    this.slug = "",
-    this.permalink = "",
     this.priceDropped = false,
     this.previousPrice,
     this.averageRating = 0,
     this.ratingCount = 0,
+    this.saleBadgeLabel,
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -59,13 +61,14 @@ class Product {
     final isInStock = parsedInStock ??
         (stockStatus.isEmpty
             ? true
-            : stockStatus == "instock" || stockStatus == "onbackorder");
+            : stockStatus == "instock");
 
-    final effectivePrice = json['price']?.toString().trim().isNotEmpty == true
-        ? json['price']?.toString() ?? "0"
-        : json['sale_price']?.toString() ??
-              json['regular_price']?.toString() ??
-              "0";
+    final effectivePrice =
+        json['price']?.toString().trim().isNotEmpty == true
+            ? json['price']?.toString() ?? "0"
+            : json['sale_price']?.toString() ??
+                json['regular_price']?.toString() ??
+                "0";
 
     return Product(
       id: _parseIntValue(json['id']),
@@ -79,8 +82,8 @@ class Product {
       shortDescription: json['short_description']?.toString() ?? "",
       type: json['type']?.toString() ?? "simple",
       sku: json['sku']?.toString() ?? "",
-      slug: json['slug']?.toString() ?? "",
       permalink: json['permalink']?.toString() ?? "",
+      slug: json['slug']?.toString() ?? "",
       stockStatus: stockStatus,
       isInStock: isInStock,
       priceDropped: json['price_drop'] == true ||
@@ -91,6 +94,7 @@ class Product {
       ),
       averageRating: _parseMoneyValue(json['average_rating']) ?? 0,
       ratingCount: _parseIntValue(json['rating_count']),
+      saleBadgeLabel: json['_yana_sale_badge']?.toString(),
     );
   }
 
@@ -105,16 +109,18 @@ class Product {
       'short_description': shortDescription,
       'type': type,
       'sku': sku,
-      'slug': slug,
       'permalink': permalink,
+      'slug': slug,
       'stock_status': stockStatus,
       'in_stock': isInStock,
       'price_drop': priceDropped,
       if (previousPrice != null) 'previous_price': previousPrice,
       'average_rating': averageRating.toStringAsFixed(1),
       'rating_count': ratingCount,
+      if (saleBadgeLabel != null) '_yana_sale_badge': saleBadgeLabel,
       'images': [
-        for (final imageUrl in galleryImages) {'src': imageUrl},
+        for (final imageUrl in galleryImages)
+          {'src': imageUrl},
       ],
     };
   }

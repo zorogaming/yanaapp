@@ -210,6 +210,13 @@ class _LoginScreenState extends State<LoginScreen> {
     await Navigator.pushNamed(context, ForgotPasswordScreen.routeName);
   }
 
+  Future<void> openSignup() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SignupScreen()),
+    );
+  }
+
   InputDecoration _buildInputDecoration(
     String label,
     IconData icon,
@@ -288,6 +295,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: 74,
                       height: 74,
                       fit: BoxFit.contain,
+                      color: palette.isLight ? const Color(0xFF11130E) : Colors.white,
+                      colorBlendMode: BlendMode.srcIn,
                     ),
                     const SizedBox(height: 18),
                     Text(
@@ -411,16 +420,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(18),
                         ),
                       ),
-                      onPressed: isLoading
-                          ? null
-                          : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const SignupScreen(),
-                                ),
-                              );
-                            },
+                      onPressed: isLoading ? null : openSignup,
                       child: const Text(
                         "Create Account",
                         style: TextStyle(

@@ -12,8 +12,10 @@ class PayUService implements PayUCheckoutProProtocol {
   Completer<bool>? _paymentCompleter;
   Map<String, dynamic>? _activePayment;
   String? _lastFailureReason;
+  String? _lastTransactionId;
 
   String? get lastFailureReason => _lastFailureReason;
+  String? get lastTransactionId => _lastTransactionId;
 
   PayUService() {
     _checkoutPro = PayUCheckoutProFlutter(this);
@@ -47,6 +49,7 @@ class PayUService implements PayUCheckoutProProtocol {
     final userCredential = "${Config.payuMerchantKey}:$normalizedEmail";
 
     final txnId = _buildTxnId();
+    _lastTransactionId = txnId;
     print(
       "[PAYU][FLOW] start txnId=$txnId amount=${amount.toStringAsFixed(2)} email=$normalizedEmail",
     );

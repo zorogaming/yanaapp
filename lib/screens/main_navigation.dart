@@ -1,17 +1,21 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/product_model.dart';
 import '../providers/cart_provider.dart';
 import '../services/auth_service.dart';
 import '../services/analytics_service.dart';
+import '../services/data_manager.dart';
 import '../services/notification_inbox_service.dart';
 import '../services/woo_service.dart';
 import '../services/whatsapp_community_popup_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/whatsapp_community_popup.dart';
+import '../widgets/yana_products_loading_screen.dart';
 import 'cart_screen.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
@@ -30,6 +34,8 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int currentIndex = 0;
   bool _startupReady = false;
+  bool _startupProductsReady = false;
+  bool _startupImagesReady = false;
   bool _communityPopupShown = false;
   Timer? _communityPopupTimer;
   final AuthService _authService = AuthService();
@@ -76,14 +82,67 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   Future<void> _prepareStartup() async {
+    final minimumLoaderTime = Future<void>.delayed(
+      const Duration(milliseconds: 850),
+    );
+    final versionLoad = WooService().fetchAppVersion().timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => null,
+    ).catchError((_) => null);
+
     try {
-      await WooService()
-          .fetchAppVersion()
-          .timeout(const Duration(seconds: 4), onTimeout: () => null);
+      final rawProducts = await DataManager().getHomeProducts().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => <dynamic>[],
+      );
+      if (!mounted) return;
+      setState(() => _startupProductsReady = true);
+
+      final imageUrls = <String>[];
+      for (final raw in rawProducts) {
+        if (raw is! Map) continue;
+        try {
+          final imageUrl = Product.fromJson(
+            Map<String, dynamic>.from(raw),
+          ).image.trim();
+          if (imageUrl.toLowerCase().startsWith('http')) {
+            imageUrls.add(imageUrl);
+          }
+        } catch (_) {}
+        if (imageUrls.length == 4) break;
+      }
+
+      if (imageUrls.isNotEmpty && mounted) {
+        await Future.wait<void>(
+          imageUrls.map((url) async {
+            try {
+              await precacheImage(
+                CachedNetworkImageProvider(url),
+                context,
+                onError: (_, __) {},
+              );
+            } catch (_) {}
+          }),
+        ).timeout(const Duration(seconds: 7), onTimeout: () => <void>[]);
+      }
+      if (!mounted) return;
+      setState(() => _startupImagesReady = true);
     } catch (_) {
-      // Fail-open: don't block app navigation on version check errors.
+      // Continue into the app if the server or image cache is unavailable.
+      if (mounted) {
+        setState(() {
+          _startupProductsReady = true;
+          _startupImagesReady = true;
+        });
+      }
     }
 
+    await minimumLoaderTime;
+    try {
+      await versionLoad;
+    } catch (_) {
+      // App startup should not depend on the version endpoint.
+    }
     if (!mounted) return;
     setState(() {
       _startupReady = true;
@@ -137,46 +196,53 @@ class _MainNavigationState extends State<MainNavigation> {
     final palette = _palette;
 
     if (!_startupReady) {
-      return Scaffold(
-        backgroundColor: palette.background,
-        body: Center(
-          child: CircularProgressIndicator(color: palette.accent),
-        ),
+      return YanaProductsLoadingScreen(
+        dataReady: _startupProductsReady,
+        imagesReady: _startupImagesReady,
+        accent: palette.accent,
       );
     }
 
     return Scaffold(
       backgroundColor: palette.background,
-      body: IndexedStack(
-        index: currentIndex,
-        children: screens,
-      ),
+      body: IndexedStack(index: currentIndex, children: screens),
       bottomNavigationBar: Container(
         width: double.infinity,
-        decoration: BoxDecoration(
-          color: palette.accent,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.24),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
+        color: palette.background,
         child: SafeArea(
           top: false,
-          bottom: false,
-          minimum: EdgeInsets.zero,
+          minimum: const EdgeInsets.fromLTRB(16, 5, 16, 6),
           child: Consumer<CartProvider>(
             builder: (context, cart, child) {
               return ValueListenableBuilder<int>(
                 valueListenable:
                     NotificationInboxService.instance.unreadCountNotifier,
                 builder: (context, unreadCount, _) {
-                  return Padding(
+                  return Container(
+                    clipBehavior: Clip.antiAlias,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
+                      horizontal: 5,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: palette.isLight
+                          ? palette.surface
+                          : const Color(0xFF080A08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: palette.isLight
+                            ? palette.border
+                            : const Color(0xFF343A35),
+                      ),
+                      boxShadow: palette.isLight
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 12,
+                                offset: const Offset(0, 3),
+                              ),
+                            ]
+                          : null,
                     ),
                     child: Row(
                       children: [
@@ -259,10 +325,11 @@ class _MainNavigationState extends State<MainNavigation> {
           AnalyticsService.instance.logScreen("tab_${_tabNames[index]}");
         },
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          padding: const EdgeInsets.symmetric(vertical: 2),
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(vertical: 1),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(14),
             color: Colors.transparent,
           ),
           child: Column(
@@ -272,26 +339,22 @@ class _MainNavigationState extends State<MainNavigation> {
                 clipBehavior: Clip.none,
                 children: [
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    width: 30,
-                    height: 30,
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.black : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                      boxShadow: isSelected
-                          ? [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.22),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ]
-                          : null,
+                      color: isSelected ? palette.accent : Colors.transparent,
+                      shape: BoxShape.circle,
                     ),
                     child: Icon(
                       icon,
-                      color: isSelected ? palette.accent : Colors.black,
-                      size: 18,
+                      color: isSelected
+                          ? palette.onAccent
+                          : palette.isLight
+                          ? palette.textMuted
+                          : const Color(0xFFB8B8B8),
+                      size: 19,
                     ),
                   ),
                   if (badgeCount > 0)
@@ -304,15 +367,17 @@ class _MainNavigationState extends State<MainNavigation> {
                           vertical: 1,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.all(Radius.circular(10)),
+                          color: palette.accent,
+                          borderRadius: const BorderRadius.all(
+                            Radius.circular(10),
+                          ),
                         ),
                         constraints: const BoxConstraints(minWidth: 16),
                         child: Text(
                           badgeCount > 99 ? "99+" : badgeCount.toString(),
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: palette.accent,
+                            color: palette.onAccent,
                             fontSize: 8,
                             fontWeight: FontWeight.w700,
                           ),
@@ -325,9 +390,13 @@ class _MainNavigationState extends State<MainNavigation> {
               Text(
                 label,
                 style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 10.5,
-                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                  color: isSelected
+                      ? palette.textPrimary
+                      : palette.isLight
+                      ? palette.textMuted
+                      : const Color(0xFFC2C2C2),
+                  fontSize: 9.5,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
                 ),
               ),
             ],

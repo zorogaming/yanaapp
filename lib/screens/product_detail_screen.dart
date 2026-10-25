@@ -436,7 +436,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
     final accentColor = palette.accent;
 
     return Scaffold(
-      backgroundColor: palette.isLight ? const Color(0xFFF1F1F1) : palette.background,
+      backgroundColor: palette.background,
       body: Column(
         children: [
           Expanded(
@@ -676,7 +676,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
             : (availableWidth >= 700 ? 680.0 : availableWidth);
 
         return Container(
-          color: palette.surface,
+          color: palette.isLight ? palette.surfaceStrong : palette.surface,
           width: double.infinity,
           child: Column(
             children: [
@@ -757,6 +757,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
                                 borderRadius: BorderRadius.circular(999),
                                 color: _currentPage == index
                                     ? accentColor
+                                    : palette.isLight
+                                    ? palette.border
                                     : Colors.white.withOpacity(0.62),
                               ),
                             );
@@ -783,6 +785,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
     final theme = Theme.of(context);
     final palette = context.appPalette;
     final accentColor = palette.accent;
+    final accentTextColor = palette.isLight
+        ? const Color(0xFF527500)
+        : palette.accentStrong;
     final regularPrice = _selectedRegularPrice();
     final discountPercent = _selectedDiscountPercent();
     final rating = _resolvedProductRating();
@@ -845,7 +850,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
                     Text(
                       "Excellent",
                       style: TextStyle(
-                        color: accentColor,
+                        color: palette.isLight ? accentTextColor : accentColor,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -922,11 +927,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
                     ? palette.surfaceStrong
                     : palette.surfaceSoft,
                 textColor: isCurrentSelectionInStock
-                    ? palette.accent
-                    : palette.accentStrong,
+                    ? (palette.isLight ? accentTextColor : palette.accent)
+                    : (palette.isLight
+                          ? accentTextColor
+                          : palette.accentStrong),
                 borderColor: isCurrentSelectionInStock
-                    ? palette.accent.withValues(alpha: 0.24)
-                    : palette.accentStrong.withValues(alpha: 0.24),
+                    ? (palette.isLight ? accentTextColor : palette.accent)
+                          .withValues(alpha: 0.24)
+                    : (palette.isLight
+                              ? accentTextColor
+                              : palette.accentStrong)
+                          .withValues(alpha: 0.24),
               ),
             ],
           ),
@@ -999,6 +1010,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
 
                       return DropdownMenuItem<Map>(
                         value: variation,
+                        enabled: variationInStock,
                         child: Text(label),
                       );
                     }).toList(),
@@ -1116,7 +1128,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
                   palette.isLight ? const Color(0xFFFAFAFA) : palette.surfaceStrong,
               border: Border.all(color: palette.border),
             ),
-            child: Html(data: widget.product.description),
+            child: Html(
+              data: widget.product.description,
+              style: {
+                'body': Style(color: palette.textPrimary),
+                'p': Style(color: palette.textPrimary),
+                'div': Style(color: palette.textPrimary),
+                'span': Style(color: palette.textPrimary),
+                'li': Style(color: palette.textPrimary),
+              },
+            ),
           ),
         ],
       ),
@@ -1193,6 +1214,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
 
   Widget _buildCashbackCard(double currentPrice) {
     final palette = context.appPalette;
+    final accentTextColor = palette.isLight
+        ? const Color(0xFF527500)
+        : palette.accent;
     final eligible = currentPrice >= _cashbackSpendAmount;
     final remaining = (_cashbackSpendAmount - currentPrice).clamp(
       0,
@@ -1218,7 +1242,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
                 ),
                 child: Icon(
                   Icons.account_balance_wallet_rounded,
-                  color: eligible ? palette.accent : palette.accentStrong,
+                  color: eligible ? accentTextColor : palette.accentStrong,
                   size: 18,
                 ),
               ),
@@ -1239,7 +1263,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
                     Text(
                       eligible ? "Cashback unlocked" : "Add more to unlock",
                       style: TextStyle(
-                        color: eligible ? palette.accent : palette.textMuted,
+                        color: eligible ? accentTextColor : palette.textMuted,
                         fontWeight: FontWeight.w700,
                         fontSize: 12,
                       ),
@@ -1469,6 +1493,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
 
   Widget _buildCrossSellSection() {
     final palette = context.appPalette;
+    final actionColor = palette.isLight
+        ? const Color(0xFF527500)
+        : palette.accent;
     final visibleProducts = _crossSellProducts
         .take(_crossSellMaxItems)
         .toList();
@@ -1495,13 +1522,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
               Text(
                 "View all",
                 style: TextStyle(
-                  color: palette.accent,
+                  color: actionColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(width: 2),
-              Icon(Icons.chevron_right_rounded, color: palette.accent, size: 18),
+              Icon(Icons.chevron_right_rounded, color: actionColor, size: 18),
             ],
           ),
           const SizedBox(height: 3),
@@ -1759,7 +1786,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isCurrentSelectionInStock
-                        ? const Color(0xFFFFD814)
+                        ? (palette.isLight
+                              ? palette.accent
+                              : const Color(0xFFFFD814))
                         : palette.surfaceStrong,
                     foregroundColor: isCurrentSelectionInStock
                         ? Colors.black
@@ -2508,8 +2537,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
       return inStockRaw;
     }
 
-    return variationStockStatus == "instock" ||
-        variationStockStatus == "onbackorder";
+    return variationStockStatus == "instock";
   }
 
   String _currentStockLabel() {
@@ -2724,10 +2752,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
     VoidCallback? onTap,
   }) {
     final palette = context.appPalette;
+    final actionColor = palette.isLight
+        ? const Color(0xFF527500)
+        : palette.accent;
     final content = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: onTap == null ? palette.textMuted : palette.accent),
+        Icon(
+          icon,
+          size: 14,
+          color: onTap == null ? palette.textMuted : actionColor,
+        ),
         const SizedBox(width: 5),
         Flexible(
           child: Text(
@@ -2737,7 +2772,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen>
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
-              color: onTap == null ? palette.textMuted : palette.accent,
+              color: onTap == null ? palette.textMuted : actionColor,
             ),
           ),
         ),

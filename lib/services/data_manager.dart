@@ -19,8 +19,7 @@ class DataManager {
   static const String newArrivalProductsVersionKey =
       "new_arrival_products_version";
   static const String bestSellingProductsKey = "best_selling_products";
-  static const String bestSellingProductsVersionKey =
-      "best_selling_products_version";
+  static const String bestSellingProductsVersionKey = "best_selling_products_version";
   static const String productPriceSnapshotKey = "product_price_snapshot_v1";
   static const int homeLatestProductsLimit = 10;
   static const String bikeGarageSelectedKey = "bike_garage_selected_bike";
@@ -73,9 +72,9 @@ class DataManager {
         order: "desc",
       );
 
-      final procResponse = await http
-          .get(Uri.parse("https://yanaworldwide.store/Yanaapp/proc.txt"))
-          .timeout(const Duration(seconds: 6));
+      final procResponse = await http.get(
+        Uri.parse("https://yanaworldwide.store/Yanaapp/proc.txt"),
+      );
 
       String serverProcVersion =
           procResponse.statusCode == 200 ? procResponse.body.trim() : "1";
@@ -88,41 +87,6 @@ class DataManager {
     } catch (e) {
       print("Home fetch error: $e");
       return [];
-    }
-  }
-
-  // ================= HOME CATEGORIES =================
-
-  Future<Map<String, List>> getGroupedCategoriesWithData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final cachedData = prefs.getString(homeCategoriesKey);
-    final savedVersion = prefs.getString(homeCategoriesVersionKey);
-
-    if (_hasFetchedGroupedCategoriesThisLaunch) {
-      if (cachedData != null) {
-        return _decodeGroupedCategories(cachedData);
-      }
-      return await _fetchAndCacheGroupedCategories();
-    }
-
-    try {
-      if (cachedData != null) {
-        final serverVersion = await api.fetchAppVersion();
-        _hasFetchedGroupedCategoriesThisLaunch = true;
-        if (serverVersion == null || serverVersion == savedVersion) {
-          return _decodeGroupedCategories(cachedData);
-        }
-      }
-
-      final freshData = await _fetchAndCacheGroupedCategories();
-      _hasFetchedGroupedCategoriesThisLaunch = true;
-      return freshData;
-    } catch (_) {
-      _hasFetchedGroupedCategoriesThisLaunch = true;
-      if (cachedData != null) {
-        return _decodeGroupedCategories(cachedData);
-      }
-      return {};
     }
   }
 
@@ -201,6 +165,41 @@ class DataManager {
     } catch (e) {
       print("Best selling products fetch error: $e");
       return const [];
+    }
+  }
+
+  // ================= HOME CATEGORIES =================
+
+  Future<Map<String, List>> getGroupedCategoriesWithData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedData = prefs.getString(homeCategoriesKey);
+    final savedVersion = prefs.getString(homeCategoriesVersionKey);
+
+    if (_hasFetchedGroupedCategoriesThisLaunch) {
+      if (cachedData != null) {
+        return _decodeGroupedCategories(cachedData);
+      }
+      return await _fetchAndCacheGroupedCategories();
+    }
+
+    try {
+      if (cachedData != null) {
+        final serverVersion = await api.fetchAppVersion();
+        _hasFetchedGroupedCategoriesThisLaunch = true;
+        if (serverVersion == null || serverVersion == savedVersion) {
+          return _decodeGroupedCategories(cachedData);
+        }
+      }
+
+      final freshData = await _fetchAndCacheGroupedCategories();
+      _hasFetchedGroupedCategoriesThisLaunch = true;
+      return freshData;
+    } catch (_) {
+      _hasFetchedGroupedCategoriesThisLaunch = true;
+      if (cachedData != null) {
+        return _decodeGroupedCategories(cachedData);
+      }
+      return {};
     }
   }
 
@@ -410,7 +409,9 @@ class DataManager {
     final cachedData = prefs.getString(cacheKey);
     if (preferCache && cachedData != null && cachedData.isNotEmpty) {
       final cachedPayload = _decodeSaleCollectionCache(cachedData);
-      if (cachedPayload != null) return cachedPayload;
+      if (cachedPayload != null) {
+        return cachedPayload;
+      }
     }
 
     try {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/product_model.dart';
 import '../services/data_manager.dart';
+import '../theme/app_theme.dart';
 import 'products_screen.dart';
 
 class SaleProductsScreen extends StatefulWidget {
@@ -25,6 +26,7 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   bool _isCollectionEnabled = true;
+  String? _collectionLabel;
 
   @override
   void initState() {
@@ -62,6 +64,7 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
         _products = parsed;
         _isLoading = false;
         _isCollectionEnabled = enabled;
+        _collectionLabel = payload['label']?.toString();
         _errorMessage = enabled ? null : (message ?? "This sale is disabled.");
       });
     } catch (e) {
@@ -89,36 +92,63 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
       case "daily_sale":
         return "Daily Sale";
       case "big_days_sale":
-        return "Big Days";
+        return _collectionLabel ?? widget.title;
       default:
         return widget.title;
     }
   }
 
+  List<Product> get _productsWithSaleBadge {
+    if (widget.collectionKey != 'big_days_sale' || !_isCollectionEnabled) {
+      return _products;
+    }
+    final label = (_collectionLabel ?? widget.title).trim();
+    return _products
+        .map((product) => Product(
+              id: product.id,
+              name: product.name,
+              price: product.price,
+              regularPrice: product.regularPrice,
+              salePrice: product.salePrice,
+              image: product.image,
+              galleryImages: product.galleryImages,
+              description: product.description,
+              shortDescription: product.shortDescription,
+              type: product.type,
+              sku: product.sku,
+              stockStatus: product.stockStatus,
+              isInStock: product.isInStock,
+              priceDropped: product.priceDropped,
+              previousPrice: product.previousPrice,
+              averageRating: product.averageRating,
+              ratingCount: product.ratingCount,
+              saleBadgeLabel: label,
+            ))
+        .toList(growable: false);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final palette = context.appPalette;
+
     return Scaffold(
-      backgroundColor: RacingColors.scaffoldBg,
+      backgroundColor: palette.background,
       appBar: AppBar(
         title: Text(
-          widget.title,
-          style: const TextStyle(
-            color: RacingColors.textPrimary,
+          _collectionLabel ?? widget.title,
+          style: TextStyle(
+            color: palette.textPrimary,
+            fontSize: 18,
             fontWeight: FontWeight.w800,
           ),
         ),
-        backgroundColor: RacingColors.panelBg,
-        iconTheme: const IconThemeData(color: RacingColors.textPrimary),
+        backgroundColor: palette.surface,
+        foregroundColor: palette.textPrimary,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: IconThemeData(color: palette.accent),
       ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [RacingColors.scaffoldBgSoft, RacingColors.scaffoldBg],
-          ),
-        ),
-        child: RefreshIndicator(
+      body: RefreshIndicator(
           onRefresh: _loadProducts,
           child: _isLoading
               ? ListView.separated(
@@ -178,12 +208,11 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (context, index) {
                         return ProductCard(
-                          product: _products[index],
+                          product: _productsWithSaleBadge[index],
                           badgeLabel: _badgeLabel,
                         );
                       },
                     ),
-        ),
       ),
     );
   }

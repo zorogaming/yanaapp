@@ -1,11 +1,13 @@
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/cart_provider.dart';
+import '../services/category_image_cache.dart';
 import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_cached_image.dart';
@@ -36,6 +38,7 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
   late Future<List<MotorcycleAccessoryTab>> _categoriesFuture;
 
   int _selectedIndex = 0;
+  String _imageVersion = '';
 
   String get _cacheKey => "${widget.cacheKeyPrefix}_cache";
   String get _versionKey => "${widget.cacheKeyPrefix}_version";
@@ -47,6 +50,7 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
       sourceUrl: widget.sourceUrl,
       cacheKey: _cacheKey,
       versionKey: _versionKey,
+      onVersionLoaded: _handleImageVersion,
     );
   }
 
@@ -55,6 +59,7 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
       sourceUrl: widget.sourceUrl,
       cacheKey: _cacheKey,
       versionKey: _versionKey,
+      onVersionLoaded: _handleImageVersion,
     );
     setState(() {
       _selectedIndex = 0;
@@ -63,18 +68,26 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
     await nextFuture;
   }
 
+  void _handleImageVersion(String version) {
+    if (!mounted || version == _imageVersion) return;
+    setState(() => _imageVersion = version);
+  }
+
   static Future<List<MotorcycleAccessoryTab>> _loadCategories({
     required String sourceUrl,
     required String cacheKey,
     required String versionKey,
+    void Function(String version)? onVersionLoaded,
     bool forceRefresh = false,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final cached = prefs.getString(cacheKey);
     final cachedVersion = (prefs.getString(versionKey) ?? "").trim();
     final currentVersion = (await WooService().fetchAppVersion())?.trim() ?? "";
+    onVersionLoaded?.call(currentVersion);
 
-    final canUseCache = !forceRefresh &&
+    final canUseCache =
+        !forceRefresh &&
         cached != null &&
         cached.trim().isNotEmpty &&
         (currentVersion.isEmpty || cachedVersion == currentVersion);
@@ -145,10 +158,8 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ProductsScreen(
-            categoryId: categoryId,
-            title: item.title,
-          ),
+          builder: (_) =>
+              ProductsScreen(categoryId: categoryId, title: item.title),
         ),
       );
       return;
@@ -194,9 +205,7 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return Center(
-                      child: CircularProgressIndicator(
-                        color: palette.accent,
-                      ),
+                      child: CircularProgressIndicator(color: palette.accent),
                     );
                   }
 
@@ -224,8 +233,9 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
                     );
                   }
 
-                  final safeIndex =
-                      _selectedIndex.clamp(0, categories.length - 1).toInt();
+                  final safeIndex = _selectedIndex
+                      .clamp(0, categories.length - 1)
+                      .toInt();
                   final selected = categories[safeIndex];
                   final children = selected.children;
 
@@ -251,6 +261,7 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
                               return _RailCategoryTile(
                                 item: item,
                                 isSelected: index == safeIndex,
+                                imageVersion: _imageVersion,
                                 onTap: () {
                                   setState(() => _selectedIndex = index);
                                 },
@@ -285,11 +296,13 @@ class _ShopByCategoryScreenState extends State<ShopByCategoryScreen> {
                                 LayoutBuilder(
                                   builder: (context, constraints) {
                                     const gap = 18.0;
-                                    final columns =
-                                        constraints.maxWidth < 320 ? 2 : 3;
+                                    final columns = constraints.maxWidth < 320
+                                        ? 2
+                                        : 3;
                                     final width =
-                                        (constraints.maxWidth - gap * (columns - 1)) /
-                                            columns;
+                                        (constraints.maxWidth -
+                                            gap * (columns - 1)) /
+                                        columns;
                                     return Wrap(
                                       spacing: gap,
                                       runSpacing: 26,
@@ -393,10 +406,15 @@ class _CategoryHeader extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: palette.accent,
                           borderRadius: BorderRadius.circular(99),
-                          border: Border.all(color: palette.background, width: 1.4),
+                          border: Border.all(
+                            color: palette.background,
+                            width: 1.4,
+                          ),
                         ),
                         child: Text(
-                          cart.itemCount > 99 ? "99+" : cart.itemCount.toString(),
+                          cart.itemCount > 99
+                              ? "99+"
+                              : cart.itemCount.toString(),
                           style: TextStyle(
                             color: palette.onAccent,
                             fontSize: 10,
@@ -419,17 +437,26 @@ class _RailCategoryTile extends StatelessWidget {
   const _RailCategoryTile({
     required this.item,
     required this.isSelected,
+    required this.imageVersion,
     required this.onTap,
   });
 
   final MotorcycleAccessoryTab item;
   final bool isSelected;
+  final String imageVersion;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final hasImage = item.imageUrl.trim().toLowerCase().startsWith("http");
     final palette = context.appPalette;
+    final serverImageUrl = _categoryFolderImageUrl(
+      item.title,
+      imageVersion,
+      lightTheme: palette.isLight,
+    );
+    final hasFallbackImage = item.imageUrl.trim().toLowerCase().startsWith(
+      "http",
+    );
     return Material(
       color: isSelected ? palette.surfaceSoft : palette.surface,
       child: InkWell(
@@ -460,8 +487,9 @@ class _RailCategoryTile extends StatelessWidget {
                     width: 58,
                     height: 50,
                     decoration: BoxDecoration(
-                      color:
-                          isSelected ? palette.surfaceStrong : palette.surfaceSoft,
+                      color: isSelected
+                          ? palette.surfaceStrong
+                          : palette.surfaceSoft,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
                         color: isSelected
@@ -469,19 +497,25 @@ class _RailCategoryTile extends StatelessWidget {
                             : palette.border,
                       ),
                     ),
-                    child: hasImage
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(18),
-                            child: AppCachedImage(
-                              url: item.imageUrl,
-                              fit: BoxFit.contain,
-                            ),
-                          )
-                        : Icon(
-                            _iconForTitle(item.title),
-                            color: palette.accent,
-                            size: 28,
-                          ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: CachedNetworkImage(
+                        imageUrl: serverImageUrl,
+                        cacheManager: CategoryImageCache.instance,
+                        fit: BoxFit.cover,
+                        alignment: Alignment.topCenter,
+                        errorWidget: (context, _, __) => hasFallbackImage
+                            ? AppCachedImage(
+                                url: item.imageUrl,
+                                fit: BoxFit.contain,
+                              )
+                            : Icon(
+                                _iconForTitle(item.title),
+                                color: palette.accent,
+                                size: 28,
+                              ),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -508,10 +542,7 @@ class _RailCategoryTile extends StatelessWidget {
 }
 
 class _CategoryGridCard extends StatelessWidget {
-  const _CategoryGridCard({
-    required this.item,
-    required this.onTap,
-  });
+  const _CategoryGridCard({required this.item, required this.onTap});
 
   final MotorcycleAccessoryTab item;
   final VoidCallback onTap;
@@ -569,6 +600,23 @@ class _CategoryGridCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _categoryFolderImageUrl(
+  String title,
+  String imageVersion, {
+  required bool lightTheme,
+}) {
+  final imageName = title
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r"[^a-z0-9]+"), "_")
+      .replaceAll(RegExp(r"^_+|_+$"), "");
+  final imageFolder = lightTheme ? 'catiimglight' : 'catimg';
+  final versionQuery = imageVersion.trim().isEmpty
+      ? ''
+      : '?v=${Uri.encodeQueryComponent(imageVersion.trim())}';
+  return 'https://yanaworldwide.store/Yanaapp/$imageFolder/$imageName.png$versionQuery';
 }
 
 IconData _iconForTitle(String rawTitle) {
