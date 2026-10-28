@@ -345,6 +345,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final AnimationController _titleAnimController;
   late final AnimationController _cartPulseController;
   late final AnimationController _searchCtaController;
+  late final AnimationController _saleLivePulseController;
   late final AnimationController _shopByBikeIntroController;
   String currentSearch = "";
   String offerText = "";
@@ -513,6 +514,10 @@ class _HomeScreenState extends State<HomeScreen>
     _searchCtaController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1450),
+    );
+    _saleLivePulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 760),
     );
     _shopByBikeIntroController = AnimationController(
       vsync: this,
@@ -912,6 +917,14 @@ class _HomeScreenState extends State<HomeScreen>
               : null;
         }
       });
+      if (_bigDaysSaleEnabled) {
+        if (!_saleLivePulseController.isAnimating) {
+          _saleLivePulseController.repeat(reverse: true);
+        }
+      } else if (_saleLivePulseController.isAnimating) {
+        _saleLivePulseController.stop();
+        _saleLivePulseController.value = 0;
+      }
       if (payloads[1]['enabled'] is! bool) return;
       _saleTransitionTimer?.cancel();
       final serverNow = DateTime.tryParse('${payloads[1]['server_now']}');
@@ -4400,6 +4413,7 @@ class _HomeScreenState extends State<HomeScreen>
     _titleAnimController.dispose();
     _cartPulseController.dispose();
     _searchCtaController.dispose();
+    _saleLivePulseController.dispose();
     _shopByBikeIntroController.dispose();
     _scrollController.removeListener(_handleHomeScroll);
     _scrollController.dispose();
@@ -4736,7 +4750,7 @@ class _HomeScreenState extends State<HomeScreen>
     final palette = context.appPalette;
     final topInset = MediaQuery.of(context).padding.top;
     const logoRowHeight = 64.0;
-    const commerceStripHeight = 32.0;
+    const commerceStripHeight = 38.0;
     const commerceToCategoryGap = 6.0;
     const overflowGuard = 6.0;
     final searchSuggestions = _searchSuggestions();
@@ -4744,6 +4758,8 @@ class _HomeScreenState extends State<HomeScreen>
         searchSuggestions.isNotEmpty &&
         (_searchFocusNode.hasFocus || searchController.text.trim().isNotEmpty);
     final searchSuggestionHeight = showSearchSuggestions ? 43.0 : 0.0;
+    final hasBigDaysBanner =
+        _bigDaysSaleEnabled || _upcomingSaleMessage != null;
     final homeBody = _buildHomeBody();
 
     return ValueListenableBuilder<double>(
@@ -5225,10 +5241,7 @@ class _HomeScreenState extends State<HomeScreen>
                         clipBehavior: Clip.hardEdge,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: palette.border,
-                            width: 1,
-                          ),
+                          border: Border.all(color: palette.border, width: 1),
                           color: palette.isLight ? palette.surface : null,
                           gradient: palette.isLight
                               ? null
@@ -5334,20 +5347,33 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                       ),
+                      if (hasBigDaysBanner) ...[
+                        SizedBox(height: headerGap),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: _buildScrollCollapsingChild(
+                            expandedHeight: commerceStripHeight,
+                            translateY: -12,
+                            child: _buildCommerceHeroStrip(palette),
+                          ),
+                        ),
+                      ],
                       if (showSearchSuggestions)
                         _buildSearchSuggestionsPanel(
                           palette,
                           searchSuggestions,
                         ),
-                      SizedBox(height: headerGap),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: _buildScrollCollapsingChild(
-                          expandedHeight: commerceStripHeight,
-                          translateY: -12,
-                          child: _buildCommerceHeroStrip(palette),
+                      if (!hasBigDaysBanner) ...[
+                        SizedBox(height: headerGap),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: _buildScrollCollapsingChild(
+                            expandedHeight: commerceStripHeight,
+                            translateY: -12,
+                            child: _buildCommerceHeroStrip(palette),
+                          ),
                         ),
-                      ),
+                      ],
                       SizedBox(height: commerceToCategoryGap * (1 - collapse)),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -6763,6 +6789,41 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildCommerceHeroStrip(AppThemePalette palette) {
+    if (_bigDaysSaleEnabled || _upcomingSaleMessage != null) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final saleWidth = (constraints.maxWidth * 0.55)
+              .clamp(160.0, 188.0)
+              .toDouble();
+          return Row(
+            children: [
+              SizedBox(
+                width: saleWidth,
+                child: _buildBigDaysSaleSearchBanner(palette),
+              ),
+              const Spacer(),
+              _buildHeroBadge(
+                palette: palette,
+                icon: Icons.bolt_rounded,
+                title: "RCB",
+                compact: true,
+                onTap: (startContext) =>
+                    _fillSearchFromBadgeAnimated("RCB", startContext),
+              ),
+              const SizedBox(width: 5),
+              _buildHeroBadge(
+                palette: palette,
+                icon: Icons.flash_on_rounded,
+                title: "UMA Racing",
+                compact: true,
+                onTap: (startContext) =>
+                    _fillSearchFromBadgeAnimated("UMA Racing", startContext),
+              ),
+            ],
+          );
+        },
+      );
+    }
     return Row(
       children: [
         Expanded(
@@ -6796,10 +6857,83 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildBigDaysSaleSearchBanner(AppThemePalette palette) {
+    final isLive = _bigDaysSaleEnabled;
+    final label = isLive ? _bigDaysSaleLabel : _upcomingSaleMessage!;
+    final statusColor = isLive ? const Color(0xFFFF4655) : palette.accentStrong;
+    final pulse = CurvedAnimation(
+      parent: _saleLivePulseController,
+      curve: Curves.easeInOut,
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(15),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SaleProductsScreen(
+                collectionKey: 'big_days_sale',
+                title: _bigDaysSaleLabel,
+              ),
+            ),
+          );
+        },
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: Row(
+            children: [
+              ScaleTransition(
+                scale: Tween<double>(begin: 0.82, end: 1.12).animate(pulse),
+                child: Icon(
+                  isLive ? Icons.circle : Icons.event_available_rounded,
+                  size: isLive ? 11 : 15,
+                  color: statusColor,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 10,
+                    height: 1.05,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                isLive ? 'LIVE' : 'UPCOMING',
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 8,
+                  letterSpacing: 0.3,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildHeroBadge({
     required AppThemePalette palette,
     required IconData icon,
     required String title,
+    bool compact = false,
     Future<void> Function(BuildContext startContext)? onTap,
   }) {
     return Material(
@@ -6810,7 +6944,10 @@ class _HomeScreenState extends State<HomeScreen>
             borderRadius: BorderRadius.circular(999),
             onTap: onTap == null ? null : () => onTap(badgeContext),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 9 : 11,
+                vertical: compact ? 7 : 8,
+              ),
               decoration: BoxDecoration(
                 color: palette.accent,
                 borderRadius: BorderRadius.circular(999),
@@ -6819,14 +6956,14 @@ class _HomeScreenState extends State<HomeScreen>
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, size: 14, color: palette.onAccent),
-                  const SizedBox(width: 6),
+                  Icon(icon, size: compact ? 12 : 14, color: palette.onAccent),
+                  SizedBox(width: compact ? 3 : 6),
                   Text(
                     title,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: palette.onAccent,
-                      fontSize: 10.5,
+                      fontSize: compact ? 9.5 : 10.5,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
