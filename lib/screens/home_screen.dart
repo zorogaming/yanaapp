@@ -913,11 +913,11 @@ class _HomeScreenState extends State<HomeScreen>
                   DateTime.parse(
                     '${payloads[1]['server_now']}',
                   ).isBefore(upcomingEnd)
-              ? '$upcomingName starts ${_formatSaleDate(upcomingStart)}'
+              ? '$upcomingName Starts ${_formatSaleDate(upcomingStart)}'
               : null;
         }
       });
-      if (_bigDaysSaleEnabled) {
+      if (_bigDaysSaleEnabled || _upcomingSaleMessage != null) {
         if (!_saleLivePulseController.isAnimating) {
           _saleLivePulseController.repeat(reverse: true);
         }
@@ -984,8 +984,23 @@ class _HomeScreenState extends State<HomeScreen>
     return labels[key];
   }
 
-  String _formatSaleDate(DateTime date) =>
-      '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
+  String _formatSaleDate(DateTime date) {
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${date.day} ${monthNames[date.month - 1]} ${date.year}';
+  }
 
   Future<void> _checkForHomePopup() async {
     if (!mounted || _homePopupDialogShown || _hasCheckedHomePopupThisSession) {
@@ -6863,7 +6878,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildBigDaysSaleSearchBanner(AppThemePalette palette) {
     final isLive = _bigDaysSaleEnabled;
-    final label = isLive ? _bigDaysSaleLabel : _upcomingSaleMessage!;
+    final upcomingMessage = _upcomingSaleMessage ?? '';
+    final label = isLive ? _bigDaysSaleLabel : upcomingMessage;
     final statusColor = isLive ? const Color(0xFFFF4655) : palette.accentStrong;
     final pulse = CurvedAnimation(
       parent: _saleLivePulseController,
@@ -6886,8 +6902,8 @@ class _HomeScreenState extends State<HomeScreen>
           );
         },
         child: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 7),
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
             color: Colors.transparent,
             borderRadius: BorderRadius.circular(15),
@@ -6902,28 +6918,34 @@ class _HomeScreenState extends State<HomeScreen>
                   color: statusColor,
                 ),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 3),
               Expanded(
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 10,
-                    height: 1.05,
-                    fontWeight: FontWeight.w800,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 5),
-              Text(
-                isLive ? 'LIVE' : 'UPCOMING',
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 8,
-                  letterSpacing: 0.3,
-                  fontWeight: FontWeight.w900,
+              const SizedBox(width: 3),
+              ScaleTransition(
+                scale: Tween<double>(begin: 0.92, end: 1.08).animate(pulse),
+                child: Text(
+                  isLive ? 'LIVE' : 'UPCOMING',
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 8,
+                    letterSpacing: 0.3,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ],
