@@ -1,240 +1,38 @@
-name: Build iOS IPA and TestFlight
-
+name: Inspect App Store age rating
 on:
   workflow_dispatch:
-    inputs:
-      export_method:
-        description: Export method for the IPA
-        required: true
-        default: app-store
-        type: choice
-        options:
-          - app-store
-          - ad-hoc
-          - development
-      build_name:
-        description: Optional iOS build name override
-        required: false
-        type: string
-      build_number:
-        description: Optional iOS build number override
-        required: false
-        type: string
-      upload_to_testflight:
-        description: Upload the signed IPA to TestFlight
-        required: true
-        default: true
-        type: boolean
-  push:
-    branches:
-      - main
-
+permissions:
+  contents: read
 jobs:
-  build-ios:
-    runs-on: macos-latest
-    timeout-minutes: 45
-
-    env:
-      FLUTTER_CHANNEL: stable
-      BUNDLE_ID: com.yanaworldwide.shop
-      CERTIFICATE_PATH: ${{ github.workspace }}/.ci_temp/build_certificate.p12
-      PP_PATH: ${{ github.workspace }}/.ci_temp/build_pp.mobileprovision
-      KEYCHAIN_PATH: ${{ github.workspace }}/.ci_temp/app-signing.keychain-db
-      EXPORT_OPTIONS_PATH: ${{ github.workspace }}/.ci_temp/ExportOptions.plist
-
+  age-rating:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare Firebase iOS configuration
-        shell: bash
-        env:
-          GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
-        run: |
-          if [ -z "$GOOGLE_SERVICE_INFO_PLIST_BASE64" ]; then
-            echo "::error::GOOGLE_SERVICE_INFO_PLIST_BASE64 is not set"
-            exit 1
-          fi
-          echo -n "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 --decode -o ios/Runner/GoogleService-Info.plist
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/setup-python@v5
         with:
-          channel: ${{ env.FLUTTER_CHANNEL }}
-          cache: true
-
-      - name: Set up Ruby for CocoaPods
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.2"
-          bundler-cache: false
-
-      - name: Flutter pub get
-        run: flutter pub get
-
-      - name: Install CocoaPods dependencies
-        shell: bash
-        run: |
-          cd ios
-          pod repo update
-          pod install
-
-      - name: Validate signing secrets
-        shell: bash
+          python-version: '3.12'
+      - run: python -m pip install PyJWT cryptography
+      - name: Read App Store age rating
         env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        shell: python
         run: |
-          missing=0
-          for secret_name in BUILD_CERTIFICATE_BASE64 BUILD_PROVISION_PROFILE_BASE64 P12_PASSWORD KEYCHAIN_PASSWORD APPLE_TEAM_ID PROVISIONING_PROFILE_NAME; do
-            if [ -z "${!secret_name}" ]; then
-              echo "::error::$secret_name is not set"
-              missing=1
-            fi
-          done
-
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: Validate TestFlight secrets
-        if: github.event_name == 'workflow_dispatch' && inputs.upload_to_testflight
-        shell: bash
-        env:
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
-        run: |
-          missing=0
-          for secret_name in APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY_BASE64; do
-            if [ -z "${!secret_name}" ]; then
-              echo "::error::$secret_name is not set"
-              missing=1
-            fi
-          done
-
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: Prepare signing files
-        shell: bash
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-        run: |
-          mkdir -p "$(dirname "$CERTIFICATE_PATH")"
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
-
-      - name: Configure keychain and provisioning profile
-        shell: bash
-        env:
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles"
-
-      - name: Create export options plist
-        shell: bash
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
-        run: |
-          cat > "$EXPORT_OPTIONS_PATH" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>${{ github.event.inputs.export_method || 'app-store' }}</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>$APPLE_TEAM_ID</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>$BUNDLE_ID</key>
-              <string>$PROVISIONING_PROFILE_NAME</string>
-            </dict>
-            <key>stripSwiftSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <false/>
-          </dict>
-          </plist>
-          EOF
-
-      - name: Build signed IPA
-        shell: bash
-        env:
-          INPUT_BUILD_NAME: ${{ github.event.inputs.build_name }}
-          INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
-        run: |
-          ARGS=(build ipa --release --export-options-plist="$EXPORT_OPTIONS_PATH")
-
-          if [ -n "$INPUT_BUILD_NAME" ]; then
-            ARGS+=("--build-name=$INPUT_BUILD_NAME")
-          fi
-
-          EFFECTIVE_BUILD_NUMBER="${INPUT_BUILD_NUMBER:-${GITHUB_RUN_NUMBER}}"
-          ARGS+=("--build-number=$EFFECTIVE_BUILD_NUMBER")
-
-          flutter "${ARGS[@]}"
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-ipa
-          path: build/ios/ipa/*.ipa
-          if-no-files-found: error
-
-      - name: Upload XCArchive artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-xcarchive
-          path: build/ios/archive/*.xcarchive
-          if-no-files-found: warn
-
-      - name: Prepare App Store Connect API key
-        if: github.event_name == 'workflow_dispatch' && inputs.upload_to_testflight
-        shell: bash
-        env:
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
-        run: |
-          KEY_DIR="$HOME/.appstoreconnect/private_keys"
-          KEY_PATH="$KEY_DIR/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
-          mkdir -p "$KEY_DIR"
-          echo -n "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
-          chmod 600 "$KEY_PATH"
-
-      - name: Upload to TestFlight
-        if: github.event_name == 'workflow_dispatch' && inputs.upload_to_testflight
-        shell: bash
-        env:
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-        run: |
-          IPA_PATH="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
-          if [ -z "$IPA_PATH" ]; then
-            echo "::error::No IPA found for TestFlight upload"
-            exit 1
-          fi
-
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA_PATH" \
-            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+          import os,base64,time,json,urllib.request,urllib.error
+          import jwt
+          key=base64.b64decode(os.environ['ASC_PRIVATE_KEY'])
+          now=int(time.time())
+          token=jwt.encode({'iss':os.environ['ASC_ISSUER'],'iat':now,'exp':now+600,'aud':'appstoreconnect-v1'},key,algorithm='ES256',headers={'kid':os.environ['ASC_KEY_ID'],'typ':'JWT'})
+          print('::add-mask::'+token)
+          def apple(path):
+              req=urllib.request.Request('https://api.appstoreconnect.apple.com/v1/'+path,headers={'Authorization':'Bearer '+token})
+              try:
+                  return json.load(urllib.request.urlopen(req,timeout=60))
+              except urllib.error.HTTPError as e:
+                  print(e.read().decode()); raise SystemExit(1)
+          infos=apple('apps/6772871793/appInfos')
+          print('APP_INFOS '+json.dumps(infos))
+          for info in infos['data']:
+              print('AGE_DECLARATION '+info['id']+' '+json.dumps(apple('appInfos/'+info['id']+'/ageRatingDeclaration')))
+          print('VERSIONS '+json.dumps(apple('apps/6772871793/appStoreVersions?filter[platform]=IOS&limit=5')))
