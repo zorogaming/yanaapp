@@ -1,4 +1,4 @@
-name: Inspect App Store age rating
+name: Complete App Store age rating
 on:
   workflow_dispatch:
 permissions:
@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install PyJWT cryptography
-      - name: Read App Store age rating
+      - name: Complete pending social-media answers
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ASC_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -25,14 +25,24 @@ jobs:
           now=int(time.time())
           token=jwt.encode({'iss':os.environ['ASC_ISSUER'],'iat':now,'exp':now+600,'aud':'appstoreconnect-v1'},key,algorithm='ES256',headers={'kid':os.environ['ASC_KEY_ID'],'typ':'JWT'})
           print('::add-mask::'+token)
-          def apple(path):
-              req=urllib.request.Request('https://api.appstoreconnect.apple.com/v1/'+path,headers={'Authorization':'Bearer '+token})
+          def apple(path,body=None):
+              req=urllib.request.Request('https://api.appstoreconnect.apple.com/v1/'+path,data=json.dumps(body).encode() if body else None,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},method='PATCH' if body else 'GET')
               try:
                   return json.load(urllib.request.urlopen(req,timeout=60))
               except urllib.error.HTTPError as e:
                   print(e.read().decode()); raise SystemExit(1)
-          infos=apple('apps/6772871793/appInfos')
-          print('APP_INFOS '+json.dumps(infos))
-          for info in infos['data']:
-              print('AGE_DECLARATION '+info['id']+' '+json.dumps(apple('appInfos/'+info['id']+'/ageRatingDeclaration')))
-          print('VERSIONS '+json.dumps(apple('apps/6772871793/appStoreVersions?filter[platform]=IOS&limit=5')))
+          info_id='fbedd4cd-dd68-491d-8a23-04d109ea4cf9'
+          info=apple('appInfos/'+info_id)['data']
+          assert info['attributes']['state']=='PREPARE_FOR_SUBMISSION', 'App info state changed; stop'
+          before=apple('appInfos/'+info_id+'/ageRatingDeclaration')['data']
+          expected={'socialMedia':False,'socialMediaAgeRestricted':False}
+          assert all(before['attributes'].get(k) in (None,False) for k in expected), 'Answers changed; stop'
+          print('BEFORE '+json.dumps(before['attributes']))
+          result=apple('ageRatingDeclarations/'+before['id'],{'data':{'type':'ageRatingDeclarations','id':before['id'],'attributes':expected}})
+          after=apple('appInfos/'+info_id+'/ageRatingDeclaration')['data']['attributes']
+          assert all(after.get(k)==v for k,v in expected.items()), 'Verification failed'
+          assert all(after.get(k)==v for k,v in before['attributes'].items() if k not in expected), 'Unexpected other answer change'
+          print('VERIFIED_ANSWERS '+json.dumps(after))
+          print('VERIFIED_RATING '+json.dumps(apple('appInfos/'+info_id)['data']['attributes']))
+          versions=apple('apps/6772871793/appStoreVersions?filter[platform]=IOS&limit=10')['data']
+          print('VERSION_STATES '+json.dumps([{'id':v['id'],**v['attributes']} for v in versions]))
