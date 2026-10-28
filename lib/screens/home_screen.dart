@@ -3419,53 +3419,57 @@ class _HomeScreenState extends State<HomeScreen>
                       maxWidthDiskCache: _homeCategoryImageCacheWidth,
                       filterQuality: FilterQuality.low,
                     ),
+                  Positioned(
+                    right: 7,
+                    bottom: 7,
+                    child: Container(
+                      width: 25,
+                      height: 25,
+                      decoration: BoxDecoration(
+                        color: palette.highlight,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.16),
+                            blurRadius: 5,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward_rounded,
+                        color: Colors.black,
+                        size: 16,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(9, 5, 7, 8),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(9, 6, 9, 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: palette.textPrimary,
-                            fontSize: 11,
-                            height: 1.08,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          width: 31,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: palette.highlight,
-                            borderRadius: BorderRadius.circular(99),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 11,
+                      height: 1.08,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(width: 5),
+                  const SizedBox(height: 4),
                   Container(
-                    width: 28,
-                    height: 28,
+                    width: 31,
+                    height: 3,
                     decoration: BoxDecoration(
                       color: palette.highlight,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward_rounded,
-                      color: Colors.black,
-                      size: 18,
+                      borderRadius: BorderRadius.circular(99),
                     ),
                   ),
                 ],
