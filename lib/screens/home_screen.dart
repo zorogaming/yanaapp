@@ -340,6 +340,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<_HomeCategorySectionData>? _categorySectionFuture;
   Future<List<Product>>? _newArrivalsFuture;
   Future<List<Product>>? _bestSellersFuture;
+  Future<List<Product>>? _bigDaysSaleProductsFuture;
   Future<Map<String, dynamic>>? _bikeGarageFuture;
   late Future<String?> _authTokenFuture;
   late final AnimationController _titleAnimController;
@@ -674,8 +675,52 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _newArrivalsFuture = _loadNewArrivals();
         _bestSellersFuture = _loadBestSellers();
+        _bigDaysSaleProductsFuture = _loadBigDaysSaleProducts();
       });
     });
+  }
+
+  Future<List<Product>> _loadBigDaysSaleProducts() async {
+    final payload = await dataManager.getSaleCollection(
+      'big_days_sale',
+      perPage: 50,
+    );
+    if (payload['enabled'] != true || payload['items'] is! List) {
+      return const <Product>[];
+    }
+    final label = (payload['label'] ?? _bigDaysSaleLabel).toString().trim();
+    return (payload['items'] as List)
+        .whereType<Map>()
+        .map((item) => Product.fromJson(Map<String, dynamic>.from(item)))
+        .where((product) {
+          final price = product.priceValue;
+          return product.image.trim().toLowerCase().startsWith('http') &&
+              price != null &&
+              price > 0;
+        })
+        .map(
+          (product) => Product(
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            regularPrice: product.regularPrice,
+            salePrice: product.salePrice,
+            image: product.image,
+            galleryImages: product.galleryImages,
+            description: product.description,
+            shortDescription: product.shortDescription,
+            type: product.type,
+            sku: product.sku,
+            stockStatus: product.stockStatus,
+            isInStock: product.isInStock,
+            priceDropped: product.priceDropped,
+            previousPrice: product.previousPrice,
+            averageRating: product.averageRating,
+            ratingCount: product.ratingCount,
+            saleBadgeLabel: label.isEmpty ? 'Big Days Sale' : label,
+          ),
+        )
+        .toList(growable: false);
   }
 
   List<Product> _parseHomeProductsSafely(List<dynamic> items) {
@@ -3847,6 +3892,99 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildBigDaysSaleSection() {
+    final palette = context.appPalette;
+    return FutureBuilder<List<Product>>(
+      future: _bigDaysSaleProductsFuture,
+      builder: (context, snapshot) {
+        if (_bigDaysSaleProductsFuture == null ||
+            snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox.shrink();
+        }
+        final products = snapshot.data ?? const <Product>[];
+        if (!_bigDaysSaleEnabled || products.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        final accent = palette.isLight
+            ? palette.accentStrong
+            : palette.highlight;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 12, 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: accent.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.local_offer_rounded,
+                      color: accent,
+                      size: 17,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      _bigDaysSaleLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SaleProductsScreen(
+                          collectionKey: 'big_days_sale',
+                          title: _bigDaysSaleLabel,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      'View all Products',
+                      style: TextStyle(
+                        color: accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: 178,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: products.length > 10 ? 10 : products.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) => _buildHomeProductRailCard(
+                  products[index],
+                  palette,
+                  _bigDaysSaleLabel,
+                  accent,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildBestSellersSection() {
     return _buildProductRailSection(
       future: _bestSellersFuture,
@@ -4084,7 +4222,7 @@ class _HomeScreenState extends State<HomeScreen>
                         top: Radius.circular(14),
                       ),
                       child: SizedBox(
-                        height: 94,
+                        height: 86,
                         width: double.infinity,
                         child: AppCachedImage(
                           url: product.image,
@@ -4095,29 +4233,30 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
                     ),
-                    Positioned(
-                      top: 7,
-                      left: 7,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: badgeColor,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          badgeText,
-                          style: TextStyle(
-                            color: palette.onAccent,
-                            fontSize: 8,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(7, 4, 7, 0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: badgeColor,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      badgeText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: palette.onAccent,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ],
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(9, 7, 9, 0),
@@ -4769,7 +4908,7 @@ class _HomeScreenState extends State<HomeScreen>
     final palette = context.appPalette;
     final topInset = MediaQuery.of(context).padding.top;
     const logoRowHeight = 64.0;
-    const commerceStripHeight = 38.0;
+    const commerceStripHeight = 32.0;
     const commerceToCategoryGap = 6.0;
     const overflowGuard = 6.0;
     final searchSuggestions = _searchSuggestions();
@@ -5824,6 +5963,7 @@ class _HomeScreenState extends State<HomeScreen>
                   final sectionWidgets = <Widget>[];
 
                   if (topBrandCategories.isNotEmpty) {
+                    sectionWidgets.add(_buildBigDaysSaleSection());
                     sectionWidgets.add(_buildNewArrivalsSection());
                     sectionWidgets.add(_buildBestSellersSection());
                     sectionWidgets.add(_buildRecentlyViewedSection());
