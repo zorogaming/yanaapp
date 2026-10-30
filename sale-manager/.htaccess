@@ -1,0 +1,4 @@
+Options -Indexes
+<FilesMatch "^(config\.php|config\.example\.php|README\.md|\.htaccess)$">
+  Require all denied
+</FilesMatch>

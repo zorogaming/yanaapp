@@ -10,7 +10,7 @@ import 'auth_service.dart';
 
 class WooService {
   static const String _fallbackCategoryImage =
-      "https://yanaworldwide.store/yanaapp/blank.jpg";
+      "https://yanaworldwide.store/Yanaapp/Blank.jpg";
   static const String _appVersionCacheKey = "app_version_cache";
   static const String _appVersionFetchedAtKey = "app_version_fetched_at";
   static const String _defaultTaxClassKey = "__standard__";

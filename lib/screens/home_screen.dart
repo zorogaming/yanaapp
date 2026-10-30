@@ -34,6 +34,7 @@ import 'search_result_screen.dart';
 import 'wallet_screen.dart';
 import '../services/data_manager.dart';
 import '../services/category_image_cache.dart';
+import '../widgets/category_fallback_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'bike_garage_screen.dart';
 import 'motorcycle_service_station_screen.dart';
@@ -3449,13 +3450,7 @@ class _HomeScreenState extends State<HomeScreen>
                       memCacheWidth: _homeCategoryImageCacheWidth,
                       maxWidthDiskCache: _homeCategoryImageCacheWidth,
                       filterQuality: FilterQuality.low,
-                      placeholder: (_, __) => const Center(
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
+                      placeholder: (_, __) => const CategoryFallbackImage(),
                       errorWidget: (_, __, ___) => hasFallbackImage
                           ? AppCachedImage(
                               url: fallbackImageUrl,
@@ -3464,12 +3459,7 @@ class _HomeScreenState extends State<HomeScreen>
                               maxWidthDiskCache: _homeCategoryImageCacheWidth,
                               filterQuality: FilterQuality.low,
                             )
-                          : const Center(
-                              child: Icon(
-                                Icons.image_not_supported_outlined,
-                                color: Colors.black38,
-                              ),
-                            ),
+                          : const CategoryFallbackImage(),
                     )
                   else if (hasFallbackImage)
                     AppCachedImage(
@@ -7445,7 +7435,7 @@ class _RetryingHomeCategoryImageState
   }
 
   Widget _loadingPlaceholder() {
-    return const SkeletonBox(radius: 16);
+    return const CategoryFallbackImage();
   }
 
   @override
@@ -7461,7 +7451,7 @@ class _RetryingHomeCategoryImageState
       fit: widget.fit,
       memCacheWidth: widget.memCacheWidth,
       filterQuality: FilterQuality.low,
-      placeholder: (_, __) => const SkeletonBox(radius: 16),
+      placeholder: (_, __) => const CategoryFallbackImage(),
       imageBuilder: (context, imageProvider) {
         _retryTimer?.cancel();
         _retryTimer = null;

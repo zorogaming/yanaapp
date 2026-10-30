@@ -1,0 +1,18 @@
+/* Homepage layout refresh: keep the hero, sales, and bike picker on one clean content grid. */
+body.home .wp-block-themepunch-revslider.revslider:has(> sr7-module#SR7_8_1){width:min(1320px,calc(100vw - 32px))!important;max-width:1320px!important;margin:18px auto 14px!important;overflow:hidden;border-radius:10px;background:#16130f}
+body.home sr7-module#SR7_8_1{display:block!important;width:100%!important;max-width:1320px!important;margin:0 auto!important;overflow:hidden;border-radius:10px}
+body.home #SR7_8_1 sr7-slide{max-width:100%}
+body.home .yana-sale-banners{width:calc(100% - 32px);max-width:1320px;margin:16px auto 22px;padding:0;gap:14px}
+body.home .elementor-element-97ea49f{max-width:1320px;margin-right:auto!important;margin-left:auto!important;padding-right:18px;padding-left:18px}
+body.home .elementor-element-97ea49f .yana-bike-picker ul.yana-bike-grid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0;padding:0;list-style:none}
+body.home .elementor-element-97ea49f .yana-bike-picker ul.yana-bike-grid>li{display:block!important;width:auto!important;max-width:none!important;margin:0!important;padding:0!important}
+body.home .elementor-element-97ea49f .yana-bike-picker ul.yana-bike-grid>li:nth-child(n+9){display:none!important}
+body.home .elementor-element-97ea49f .yana-bike-picker.is-expanded ul.yana-bike-grid>li{display:block!important}
+body.home .elementor-element-97ea49f .yana-bike-picker ul.yana-bike-grid>li>a{display:flex;align-items:center;gap:12px;min-height:88px;padding:10px 12px;border:1px solid #e7e7e2;border-radius:9px;background:#fff;box-shadow:0 3px 12px #00000008;text-decoration:none!important;transition:border-color .18s ease,box-shadow .18s ease}
+body.home .elementor-element-97ea49f .yana-bike-picker ul.yana-bike-grid>li>a:hover{border-color:#b4df56;box-shadow:0 5px 16px #00000012}
+body.home .elementor-element-97ea49f .yana-bike-picker .term-image{flex:0 0 70px;width:70px;height:66px;margin:0!important;background:#f7f8f3;border-radius:6px;overflow:hidden}
+body.home .elementor-element-97ea49f .yana-bike-picker .term-image img{width:100%;height:100%;object-fit:contain}
+body.home .elementor-element-97ea49f .yana-bike-picker .term-title{display:-webkit-box;min-width:0;overflow:hidden;margin:0!important;color:#171914;font-size:13px;font-weight:750;line-height:1.3;text-align:left;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+body.home .yana-bike-toggle{display:block;margin:18px auto 0;padding:11px 20px;border:0;border-radius:6px;background:#d91e18;color:#fff;font:inherit;font-size:14px;font-weight:700;line-height:1.2;cursor:pointer}
+body.home .yana-bike-toggle:hover{background:#b81713;color:#fff}
+@media(max-width:767px){body.home .wp-block-themepunch-revslider.revslider:has(> sr7-module#SR7_8_1){width:100vw!important;max-width:100vw!important;margin:8px 0 12px!important;border-radius:0}body.home sr7-module#SR7_8_1{border-radius:0}body.home .yana-sale-banners{width:calc(100% - 20px);margin:10px auto 16px;gap:8px}body.home .elementor-element-97ea49f{padding-right:10px;padding-left:10px}body.home .elementor-element-97ea49f .yana-bike-picker ul.yana-bike-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}body.home .elementor-element-97ea49f .yana-bike-picker ul.yana-bike-grid>li>a{gap:8px;min-height:72px;padding:7px}.elementor-element-97ea49f .yana-bike-picker .term-image{flex-basis:52px;width:52px;height:54px}body.home .elementor-element-97ea49f .yana-bike-picker .term-title{font-size:11px}body.home .yana-bike-toggle{margin-top:13px}}

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -8,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/woo_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_cached_image.dart';
+import '../widgets/category_fallback_image.dart';
 import 'products_screen.dart';
 
 class TopCategoryDetailScreen extends StatelessWidget {
@@ -678,21 +679,16 @@ class _MotorcycleAccessoriesRemoteTabsState
       child: hasImage
           ? ClipRRect(
               borderRadius: BorderRadius.circular(11),
-              child: AppCachedImage(
-                url: imageUrl,
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
                 fit: BoxFit.cover,
+                memCacheWidth: 200,
+                maxWidthDiskCache: 200,
+                placeholder: (context, _) => const CategoryFallbackImage(),
+                errorWidget: (context, _, __) => const CategoryFallbackImage(),
               ),
             )
-          : Center(
-              child: Text(
-                item.title.isEmpty ? "?" : item.title.substring(0, 1),
-                style: TextStyle(
-                  color: const Color(0xFF2B63D9),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
+          : const CategoryFallbackImage(),
     );
   }
 
@@ -749,16 +745,18 @@ class _MotorcycleAccessoriesRemoteTabsState
                     child: hasImage
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: AppCachedImage(
-                              url: model.imageUrl,
+                            child: CachedNetworkImage(
+                              imageUrl: model.imageUrl,
                               fit: BoxFit.contain,
+                              memCacheWidth: 200,
+                              maxWidthDiskCache: 200,
+                              placeholder: (context, _) =>
+                                  const CategoryFallbackImage(),
+                              errorWidget: (context, _, __) =>
+                                  const CategoryFallbackImage(),
                             ),
                           )
-                        : Icon(
-                            Icons.two_wheeler_rounded,
-                            color: const Color(0xFF2B63D9).withOpacity(0.72),
-                            size: 30,
-                          ),
+                        : const CategoryFallbackImage(),
                   ),
                 ),
                 Padding(
