@@ -336,8 +336,6 @@ class _ProductsScreenState extends State<ProductsScreen>
       int nextTotalPages = 0;
 
       final shouldUseCategoryCache =
-          !loadMore &&
-          currentPage == 1 &&
           widget.categoryId != null &&
           (searchQuery == null || searchQuery!.trim().isEmpty) &&
           orderBy == null &&
@@ -347,7 +345,13 @@ class _ProductsScreenState extends State<ProductsScreen>
         final cachedOrFresh = await dataManager.getCategoryProducts(
           widget.categoryId!,
         );
-        newProducts = cachedOrFresh.map((e) => Product.fromJson(e)).toList();
+        nextTotalProducts = cachedOrFresh.length;
+        nextTotalPages = (cachedOrFresh.length / 20).ceil();
+        newProducts = cachedOrFresh
+            .skip((currentPage - 1) * 20)
+            .take(20)
+            .map((e) => Product.fromJson(e))
+            .toList();
       } else {
         final trimmedSearch = searchQuery?.trim() ?? "";
         final result = trimmedSearch.isNotEmpty
@@ -373,6 +377,7 @@ class _ProductsScreenState extends State<ProductsScreen>
         nextTotalPages = result.totalPages;
       }
 
+      if (!mounted) return;
       setState(() {
         if (loadMore) {
           products.addAll(newProducts);
@@ -387,6 +392,7 @@ class _ProductsScreenState extends State<ProductsScreen>
             : newProducts.length >= 10;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => isLoading = false);
       print("Error fetching products: $e");
     }

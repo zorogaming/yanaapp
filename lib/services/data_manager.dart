@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'woo_service.dart';
 
 class DataManager {
   final WooService api = WooService();
+  // Memory only: reopening a category keeps its order until the app restarts.
+  static final Map<int, Future<List<dynamic>>> _sessionCategoryProducts = {};
   static bool _hasFetchedGroupedCategoriesThisLaunch = false;
 
   static const String homeProductsKey = "home_products";
@@ -332,47 +335,61 @@ class DataManager {
   // ================= CATEGORY PRODUCTS =================
 
   Future<List<dynamic>> getCategoryProducts(int categoryId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final cacheKey = _categoryProductsKey(categoryId);
-    final versionKey = _categoryProcVersionKey(categoryId);
-    final cachedData = prefs.getString(cacheKey);
-
-    if (cachedData != null) {
-      return jsonDecode(cachedData);
-    }
-
+    final pending = _sessionCategoryProducts.putIfAbsent(
+      categoryId,
+      () => _loadSessionCategoryProducts(categoryId),
+    );
     try {
-      return await _fetchAndCacheCategoryProducts(
-        categoryId: categoryId,
-        cacheKey: cacheKey,
-        versionKey: versionKey,
-      );
-    } catch (e) {
-      print("Category live fetch fallback error: $e");
-      return [];
+      return List<dynamic>.from(await pending);
+    } catch (_) {
+      _sessionCategoryProducts.remove(categoryId);
+      rethrow;
     }
   }
 
-  Future<List<dynamic>> _fetchAndCacheCategoryProducts({
-    required int categoryId,
-    required String cacheKey,
-    required String versionKey,
-  }) async {
-    try {
-      final freshData =
-          await api.fetchProducts(page: 1, categoryId: categoryId);
-      final serverProcVersion = await _fetchProcVersion();
-      final annotatedData = await annotateProductsWithPriceDrops(freshData);
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(cacheKey, jsonEncode(annotatedData));
-      await prefs.setString(versionKey, serverProcVersion);
-
-      return annotatedData;
-    } catch (e) {
-      print("Category fetch error: $e");
-      return [];
+  Future<List<dynamic>> _loadSessionCategoryProducts(int categoryId) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Older caches contain only page one and cannot provide a full shuffle.
+    final cacheKey = "${_categoryProductsKey(categoryId)}_all_v2";
+    final cachedData = prefs.getString(cacheKey);
+    List<dynamic> items;
+    if (cachedData != null) {
+      items = List<dynamic>.from(jsonDecode(cachedData) as List);
+    } else {
+      items = [];
+      var page = 1;
+      var totalPages = 1;
+      do {
+        final result = await api.fetchProductsWithMeta(
+          categoryId: categoryId,
+          page: page,
+          perPage: 100,
+          orderBy: 'id',
+          order: 'asc',
+        );
+        if (result.items.isEmpty && (page > 1 || result.totalPages == 0)) {
+          throw StateError(
+            'Category products could not be loaded. Please retry.',
+          );
+        }
+        items.addAll(result.items);
+        totalPages = result.totalPages;
+        page++;
+      } while (page <= totalPages);
+      items = await annotateProductsWithPriceDrops(items);
+      await prefs.setString(cacheKey, jsonEncode(items));
     }
+    // Keep the cache in canonical order; shuffle only the session copy.
+    items.shuffle(Random());
+    final firstProductKey = "${cacheKey}_previous_first";
+    if (items.length > 1 &&
+        items.first['id'].toString() == prefs.getString(firstProductKey)) {
+      items.add(items.removeAt(0));
+    }
+    if (items.isNotEmpty) {
+      await prefs.setString(firstProductKey, items.first['id'].toString());
+    }
+    return items;
   }
 
   Future<String> _fetchProcVersion() async {
@@ -389,8 +406,6 @@ class DataManager {
 
   String _categoryProductsKey(int categoryId) => "category_$categoryId";
 
-  String _categoryProcVersionKey(int categoryId) =>
-      "category_${categoryId}_proc_version";
 
   Future<Map<String, dynamic>> getSaleCollection(
     String collectionKey, {
