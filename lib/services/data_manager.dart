@@ -407,7 +407,10 @@ class DataManager {
     final cacheKey = _saleCollectionCacheKey(normalizedKey);
     final versionKey = _saleCollectionVersionKey(normalizedKey);
     final cachedData = prefs.getString(cacheKey);
-    if (preferCache && cachedData != null && cachedData.isNotEmpty) {
+    if (page == 1 &&
+        preferCache &&
+        cachedData != null &&
+        cachedData.isNotEmpty) {
       final cachedPayload = _decodeSaleCollectionCache(cachedData);
       if (cachedPayload != null) {
         return cachedPayload;
@@ -433,11 +436,11 @@ class DataManager {
       return annotatedData;
     } catch (e) {
       print("Sale collection fetch error: $e");
-      if (cachedData != null && cachedData.isNotEmpty) {
+      if (page == 1 && cachedData != null && cachedData.isNotEmpty) {
         final cachedPayload = _decodeSaleCollectionCache(cachedData);
         if (cachedPayload != null) return cachedPayload;
       }
-      return const <String, dynamic>{"items": <dynamic>[]};
+      rethrow;
     }
   }
 

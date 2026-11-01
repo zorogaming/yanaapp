@@ -341,7 +341,8 @@ JS;
             'paged' => $page,
             'meta_key' => $config['meta_key'],
             'meta_value' => 'yes',
-            'orderby' => 'rand',
+            'orderby' => 'ID',
+            'order' => 'DESC',
         ]);
 
         $items = [];

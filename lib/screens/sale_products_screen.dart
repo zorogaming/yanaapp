@@ -23,9 +23,15 @@ class SaleProductsScreen extends StatefulWidget {
 class _SaleProductsScreenState extends State<SaleProductsScreen> {
   final DataManager _dataManager = DataManager();
 
+  final ScrollController _scrollController = ScrollController();
+  int _totalProducts = 0;
   List<Product> _products = [];
   final Map<int, List<Map<String, dynamic>>> _productCategories = {};
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  int _page = 0;
+  bool _hasMore = false;
+  String? _loadMoreError;
   String? _errorMessage;
   bool _isCollectionEnabled = true;
   String? _collectionLabel;
@@ -35,12 +41,35 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_loadNearBottom);
     _loadProducts();
   }
 
-  Future<void> _loadProducts() async {
+  void _loadNearBottom() {
+    if (!_scrollController.hasClients ||
+        _isLoading ||
+        _isLoadingMore ||
+        !_hasMore ||
+        _loadMoreError != null)
+      return;
+    if (_scrollController.position.extentAfter < 600) {
+      _loadProducts(loadMore: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProducts({bool loadMore = false}) async {
+    if (_isLoadingMore || (loadMore && !_hasMore)) return;
+    final requestedPage = loadMore ? _page + 1 : 1;
     setState(() {
-      _isLoading = true;
+      _isLoading = !loadMore;
+      _isLoadingMore = loadMore;
+      _loadMoreError = null;
       _errorMessage = null;
       _isCollectionEnabled = true;
     });
@@ -48,6 +77,7 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
     try {
       final payload = await _dataManager.getSaleCollection(
         widget.collectionKey,
+        page: requestedPage,
         perPage: 50,
       );
       final rawItems = payload["items"];
@@ -89,17 +119,37 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
 
       if (!mounted) return;
       setState(() {
-        _products = parsed;
-        _productCategories
-          ..clear()
-          ..addAll(categoriesByProduct);
+        _products = loadMore
+            ? {
+                for (final product in [..._products, ...parsed])
+                  product.id: product,
+              }.values.toList()
+            : parsed;
+        if (!loadMore) _productCategories.clear();
+        _productCategories.addAll(categoriesByProduct);
+        _page = requestedPage;
+        _totalProducts =
+            int.tryParse('${payload["total"]}') ?? _products.length;
+        final pages = int.tryParse('${payload['pages']}') ?? requestedPage;
+        _hasMore = enabled && requestedPage < pages;
+        _isLoadingMore = false;
         _isLoading = false;
         _isCollectionEnabled = enabled;
         _collectionLabel = payload['label']?.toString();
         _errorMessage = enabled ? null : (message ?? "This sale is disabled.");
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadNearBottom();
+      });
     } catch (e) {
       if (!mounted) return;
+      if (loadMore) {
+        setState(() {
+          _isLoadingMore = false;
+          _loadMoreError = 'Could not load more products. Tap to retry.';
+        });
+        return;
+      }
       setState(() {
         _products = [];
         _isLoading = false;
@@ -294,7 +344,7 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
         iconTheme: IconThemeData(color: palette.accent),
       ),
       body: RefreshIndicator(
-        onRefresh: _loadProducts,
+        onRefresh: () => _loadProducts(),
         child: _isLoading
             ? ListView.separated(
                 padding: EdgeInsets.zero,
@@ -347,6 +397,7 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
                 ],
               )
             : CustomScrollView(
+                controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   if (widget.collectionKey == 'big_days_sale')
@@ -373,6 +424,29 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
                           ],
                         );
                       }, childCount: _visibleProducts.length),
+                    ),
+                  if (_hasMore)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Center(
+                          child: _loadMoreError != null
+                              ? TextButton(
+                                  onPressed: () =>
+                                      _loadProducts(loadMore: true),
+                                  child: Text(_loadMoreError!),
+                                )
+                              : _isLoadingMore
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -408,7 +482,7 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
               ),
               const SizedBox(width: 5),
               Text(
-                '${_visibleProducts.length} products',
+                '$_totalProducts products',
                 style: TextStyle(
                   color: palette.textMuted,
                   fontSize: 11,
