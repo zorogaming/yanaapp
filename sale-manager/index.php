@@ -30,6 +30,7 @@ $csrf = $_SESSION['sale_manager_csrf'] ?? '';
   <section id="setup" class="panel setup hidden"><h2>Finish server setup</h2><p>This page is ready, but <code>config.php</code> is missing. Copy <code>config.example.php</code> to <code>config.php</code>, add your WooCommerce API credentials and a password hash, then set a private writable JSON storage folder. See <code>README.md</code>.</p></section>
   <section id="login" class="panel setup hidden"><h2>Sign in</h2><p class="subtle">Use the password configured on the server.</p><form id="loginForm"><input class="field" name="password" type="password" autocomplete="current-password" required placeholder="Admin password"><button class="btn" style="width:100%;margin-top:10px">Sign in</button></form><div id="loginMessage" class="status hidden"></div></section>
   <div id="app" class="hidden">
+    <section class="panel"><label for="productSearch">Search saved products / history</label><input id="productSearch" class="field" type="search" placeholder="Product name, SKU or ID" autocomplete="off"><p id="searchResults" class="subtle" role="status"></p></section>
     <div id="mainView">
     <section class="panel"><div class="search"><textarea id="barcode" class="field" rows="2" autocomplete="off" placeholder="Enter one or more barcodes / SKUs, separated by commas"></textarea><button id="find" class="btn" type="button">Find product(s)</button></div><div class="scanbar"><button id="scan" class="btn secondary" type="button">Scan with camera</button><button id="stopScan" class="btn secondary hidden" type="button">Stop camera</button></div><video id="video" class="hidden" playsinline style="width:100%;max-height:320px;margin-top:12px;border-radius:12px;background:#111"></video><p class="hint">The barcode must match the WooCommerce product SKU. Enter multiple SKUs separated by commas or new lines. Camera scanning needs HTTPS and a supported mobile browser.</p><div id="message" class="status hidden"></div></section>
     <section><div class="product-head" style="padding:2px 3px 10px"><strong>Scanned products &amp; saved drafts</strong><span id="count" class="badge">0 items</span></div><div id="items"></div></section>
@@ -38,6 +39,14 @@ $csrf = $_SESSION['sale_manager_csrf'] ?? '';
     <section id="historyView" class="hidden"><div class="panel"><div class="product-head"><div><h2>Upload history</h2><p class="subtle">Sale price changes sent to WooCommerce.</p></div><div class="row"><button id="clearHistory" class="btn danger" type="button">Clear History</button><button id="backToProducts" class="btn secondary" type="button">Back</button></div></div></div><div id="historyMessage" class="status hidden"></div><div id="historyItems"></div></section>
   </div>
 </main>
+<section id="uploadProgress" class="panel hidden" style="position:fixed;top:0;left:0;right:0;z-index:10000;max-width:900px;margin:0 auto;padding:12px 16px;max-height:42vh;overflow:auto;box-shadow:0 6px 24px #17203333" aria-labelledby="uploadTitle">
+<h2 id="uploadTitle" style="font-size:17px;margin:0 0 6px">Website upload progress</h2>
+<p id="uploadSummary" role="status" aria-live="polite"></p>
+<progress id="uploadMeter" value="0" max="1" aria-label="Products processed" style="width:100%;height:22px;accent-color:#1769e0"></progress>
+<p class="subtle">Keep this page open until uploading finishes.</p>
+<input id="uploadSearch" class="field" type="search" placeholder="Search upload products by name, SKU or ID" aria-label="Search upload products"><div id="uploadRetryStatus" class="subtle" role="status" aria-live="polite"></div>
+<div id="uploadRows" style="max-height:180px;overflow:auto"></div>
+</section>
 <div id="publishBar" class="sticky hidden"><span id="pendingCount">No prices ready</span><button id="publish" class="btn" type="button">Upload Website</button></div>
 <script>
 const configured = <?= $configured ? 'true' : 'false' ?>;
@@ -50,12 +59,12 @@ const $ = id => document.getElementById(id);
 function message(text, type=''){const el=$(activeView==='drafts'?'draftMessage':activeView==='history'?'historyMessage':'message');el.textContent=text;el.className='status'+(type?' '+type:'');el.classList.remove('hidden')}
 async function api(action, data={}){
   const response=await fetch('api.php?action='+encodeURIComponent(action),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(data),credentials:'same-origin'});
-  let body;try{body=await response.json()}catch{throw new Error('The server returned an invalid response.')}
-  if(!response.ok||!body.ok)throw new Error(body.error||'Request failed.');return body;
+  let body;try{body=await response.json()}catch{const error=new Error('The server returned an invalid response.');error.retryable=![401,403,404,422].includes(response.status);throw error;}
+  if(!response.ok||!body.ok){const error=new Error(body.error||'Request failed.');error.retryable=[408,425,429,500,502,503,504].includes(response.status);throw error;}return body;
 }
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function cash(value){return value===null||value===''?'—':'₹'+value}
-function render(){const entries=Object.values(items).sort((a,b)=>(b.updated_at||'').localeCompare(a.updated_at||''));$('count').textContent=entries.length+' items';$('items').innerHTML=entries.length?entries.map(item=>{
+function renderContent(){const entries=Object.values(items).sort((a,b)=>(b.updated_at||'').localeCompare(a.updated_at||''));$('count').textContent=entries.length+' items';$('items').innerHTML=entries.length?entries.map(item=>{
   const key=String(item.id), ready=item.pending_price!==null&&item.pending_price!==undefined;
   return `<article class="product"><div class="product-head"><div><h2>${esc(item.name||'Product')}</h2><div class="subtle">SKU: ${esc(item.sku||'—')} · ID: ${esc(item.id)}${item.type==='variation'?' · Variation':''}</div></div><span class="badge">${ready?'Draft ready':'Scanned'}</span></div><div class="prices"><div class="price"><small>Locked regular</small><b>${cash(item.locked_regular)}</b></div><div class="price"><small>Locked sale</small><b>${cash(item.locked_sale)}</b></div><div class="price"><small>Current website sale</small><b>${cash(item.current_sale)}</b></div></div><div class="edit"><input class="field pending-input" data-id="${esc(key)}" inputmode="decimal" type="text" placeholder="New sale price (leave blank to clear)" value="${ready?esc(item.pending_price):''}"><button class="btn secondary save" data-id="${esc(key)}" type="button">Save draft</button></div><div class="${ready?'ready':'pending'}">${ready?'Saved as a draft. Website is unchanged.':'No new price saved yet; this item will not be uploaded.'}</div><div class="subtle" style="margin-top:8px">First captured: ${esc(item.locked_at||'—')}</div></article>`
   }).join(''):'<div class="panel empty">No products scanned yet. Enter a SKU or scan a barcode.</div>';
@@ -63,12 +72,12 @@ function render(){const entries=Object.values(items).sort((a,b)=>(b.updated_at||
   [...$('items').querySelectorAll('.product')].forEach(card=>{const edit=card.querySelector('.edit'),id=card.querySelector('.pending-input')?.dataset.id;if(!edit||!id)return;const button=document.createElement('button');button.type='button';button.className='btn secondary suggest';button.dataset.id=id;button.title='Requires saved cost and locked sale price. Saves a 25% discount as a draft.';button.textContent='AI Suggest (25% off)';edit.appendChild(button)});
   const readyCount=entries.filter(x=>x.pending_price!==null&&x.pending_price!==undefined).length;$('publishBar').classList.add('hidden');$('pendingCount').textContent=readyCount?readyCount+' price'+(readyCount===1?'':'s')+' ready':'No prices ready';$('publish').disabled=readyCount===0;
 }
-function renderDrafts(){const entries=Object.values(items).filter(x=>x.pending_price!==null&&x.pending_price!==undefined).sort((a,b)=>(b.updated_at||'').localeCompare(a.updated_at||''));$('draftItems').innerHTML=entries.length?entries.map(item=>`<article class="product"><div class="product-head"><div><h2>${esc(item.name||'Product')}</h2><div class="subtle">SKU: ${esc(item.sku||'—')} · ID: ${esc(item.id)}${item.type==='variation'?' · Variation':''}</div></div><span class="badge">Saved draft</span></div><div class="prices"><div class="price"><small>Locked regular</small><b>${cash(item.locked_regular)}</b></div><div class="price"><small>Locked sale</small><b>${cash(item.locked_sale)}</b></div><div class="price"><small>Current website sale</small><b>${cash(item.current_sale)}</b></div></div><div class="edit"><input class="field draft-price" data-id="${esc(item.id)}" inputmode="decimal" value="${esc(item.pending_price)}"><button class="btn secondary draft-save" data-id="${esc(item.id)}" type="button">Save draft</button></div></article>`).join(''):'<div class="panel empty">No saved price drafts. Scan a product on the main page and save a sale price first.</div>';$('pendingCount').textContent=entries.length+' saved price'+(entries.length===1?'':'s')+' ready';$('publish').disabled=!entries.length;$('publishBar').classList.toggle('hidden',activeView!=='drafts'||!entries.length)}
+function renderDraftsContent(){const entries=Object.values(items).filter(x=>x.pending_price!==null&&x.pending_price!==undefined).sort((a,b)=>(b.updated_at||'').localeCompare(a.updated_at||''));$('draftItems').innerHTML=entries.length?entries.map(item=>`<article class="product"><div class="product-head"><div><h2>${esc(item.name||'Product')}</h2><div class="subtle">SKU: ${esc(item.sku||'—')} · ID: ${esc(item.id)}${item.type==='variation'?' · Variation':''}</div></div><span class="badge">Saved draft</span></div><div class="prices"><div class="price"><small>Locked regular</small><b>${cash(item.locked_regular)}</b></div><div class="price"><small>Locked sale</small><b>${cash(item.locked_sale)}</b></div><div class="price"><small>Current website sale</small><b>${cash(item.current_sale)}</b></div></div><div class="edit"><input class="field draft-price" data-id="${esc(item.id)}" inputmode="decimal" value="${esc(item.pending_price)}"><button class="btn secondary draft-save" data-id="${esc(item.id)}" type="button">Save draft</button></div></article>`).join(''):'<div class="panel empty">No saved price drafts. Scan a product on the main page and save a sale price first.</div>';$('pendingCount').textContent=entries.length+' saved price'+(entries.length===1?'':'s')+' ready';$('publish').disabled=!entries.length;$('publishBar').classList.toggle('hidden',activeView!=='drafts'||!entries.length)}
 function updateProfitLine(node,item){const cost=String(item.cost_price??'').trim(),sale=String(item.locked_sale??'').trim(),regular=String(item.locked_regular??'').trim(),basis=sale!==''?sale:regular,label=sale!==''?'locked sale':'locked regular';if(cost===''){node.className='profit-line subtle';node.textContent='Enter your cost to see estimated profit.';return}if(basis===''||!Number.isFinite(Number(cost))||!Number.isFinite(Number(basis))){node.className='profit-line subtle';node.textContent='A locked selling price is not available for this calculation.';return}const costValue=Number(cost),sellingValue=Number(basis),amount=sellingValue-costValue,margin=sellingValue!==0?(amount/sellingValue*100).toFixed(2)+'%':'N/A',markup=costValue!==0?(amount/costValue*100).toFixed(2)+'%':'N/A';node.className='profit-line '+(amount>=0?'profit':'loss');node.textContent=(amount>=0?'Estimated profit: ':'Estimated loss: ')+cash(Math.abs(amount).toFixed(2))+' · Margin: '+margin+' · Markup: '+markup+' (based on '+label+' price)'}
 async function saveCostValue(id,value){const promise=api('save-cost',{id,cost_price:value});costSaves[id]=promise;try{const out=await promise,latest=costValues[id];items[id]=out.item;if(latest!==value)items[id].cost_price=latest;else costValues[id]=String(out.item.cost_price??'');const status=document.querySelector('.cost-status[data-id="'+CSS.escape(id)+'"]');if(status)status.textContent=latest===value?'Cost saved':'Saving…';return true}catch(e){const status=document.querySelector('.cost-status[data-id="'+CSS.escape(id)+'"]');if(status)status.textContent='Save failed — '+e.message;throw e}finally{if(costSaves[id]===promise)delete costSaves[id]}}
 function queueCost(input){const id=input.dataset.id,value=input.value.trim();costValues[id]=value;if(items[id])items[id].cost_price=value;const status=document.querySelector('.cost-status[data-id="'+CSS.escape(id)+'"]');if(status)status.textContent='Saving…';const profit=input.closest('.product')?.querySelector('.profit-line');if(profit&&items[id])updateProfitLine(profit,items[id]);if(costTimers[id])clearTimeout(costTimers[id]);costTimers[id]=setTimeout(async()=>{delete costTimers[id];try{if(costSaves[id])await costSaves[id];await saveCostValue(id,costValues[id])}catch{}},650)}
 async function flushCostInputs(){for(const input of document.querySelectorAll('.cost-input')){const id=input.dataset.id,value=input.value.trim();if(costTimers[id]){clearTimeout(costTimers[id]);delete costTimers[id]}if(costSaves[id]){try{await costSaves[id]}catch{}}if(costValues[id]!==value||items[id]?.cost_price!==value)costValues[id]=value;try{await saveCostValue(id,value)}catch(e){throw new Error('Could not save cost for '+(items[id]?.name||id)+': '+e.message)}}}
-function renderHistory(entries){$('historyItems').innerHTML=entries.length?entries.map(row=>{const good=row.status==='success',newPrice=row.new_sale_price===''?'Sale price cleared':cash(row.new_sale_price);let when=row.uploaded_at||'';try{when=new Date(when).toLocaleString()}catch{}return `<article class="product"><div class="product-head"><div><h2>${esc(row.name||'Product')}</h2><div class="subtle">SKU: ${esc(row.sku||'—')} · ID: ${esc(row.product_id)}${row.type==='variation'?' · Variation':''}</div></div><span class="history-state ${good?'success':'failed'}">${good?'Uploaded':'Failed'}</span></div><div class="history-prices"><div class="price"><small>Locked regular</small><b>${cash(row.locked_regular)}</b></div><div class="price"><small>Locked sale</small><b>${cash(row.locked_sale)}</b></div><div class="price"><small>New sale price</small><b>${newPrice}</b></div></div><div class="subtle">Upload time: ${esc(when)}</div>${row.error?`<div class="history-error">${esc(row.error)}</div>`:''}</article>`}).join(''):'<div class="panel empty">No upload history yet. Successfully or unsuccessfully submitted price changes will appear here.</div>'}
+function renderHistoryContent(entries){$('historyItems').innerHTML=entries.length?entries.map(row=>{const good=row.status==='success',newPrice=row.new_sale_price===''?'Sale price cleared':cash(row.new_sale_price);let when=row.uploaded_at||'';try{when=new Date(when).toLocaleString()}catch{}return `<article class="product"><div class="product-head"><div><h2>${esc(row.name||'Product')}</h2><div class="subtle">SKU: ${esc(row.sku||'—')} · ID: ${esc(row.product_id)}${row.type==='variation'?' · Variation':''}</div></div><span class="history-state ${good?'success':'failed'}">${good?'Uploaded':'Failed'}</span></div><div class="history-prices"><div class="price"><small>Locked regular</small><b>${cash(row.locked_regular)}</b></div><div class="price"><small>Locked sale</small><b>${cash(row.locked_sale)}</b></div><div class="price"><small>New sale price</small><b>${newPrice}</b></div></div><div class="subtle">Upload time: ${esc(when)}</div>${row.error?`<div class="history-error">${esc(row.error)}</div>`:''}</article>`}).join(''):'<div class="panel empty">No upload history yet. Successfully or unsuccessfully submitted price changes will appear here.</div>'}
 function addHistoryCosts(entries){[...$('historyItems').querySelectorAll('.product')].forEach((card,index)=>{const row=entries[index],priceGrid=card.querySelector('.history-prices');if(!row||!priceGrid)return;const price=document.createElement('div'),cost=String(row.cost_price??''),sale=String(row.locked_sale??''),regular=String(row.locked_regular??'');price.className='price';price.innerHTML='<small>Your cost</small><b>'+esc(cost===''?'—':cash(cost))+'</b>';priceGrid.insertBefore(price,priceGrid.lastElementChild);const sellingValue=sale!==''?Number(sale):Number(regular),costValue=Number(cost);if(cost!==''&&Number.isFinite(costValue)&&Number.isFinite(sellingValue)){const amount=sellingValue-costValue,margin=sellingValue!==0?(amount/sellingValue*100).toFixed(2)+'%':'N/A',markup=costValue!==0?(amount/costValue*100).toFixed(2)+'%':'N/A',profit=document.createElement('div');profit.className='profit-line '+(amount>=0?'profit':'loss');profit.textContent=(amount>=0?'Estimated profit: ':'Estimated loss: ')+cash(Math.abs(amount).toFixed(2))+' · Margin: '+margin+' · Markup: '+markup+' (locked '+(sale!==''?'sale':'regular')+' price)';card.insertBefore(profit,priceGrid.nextSibling)}})}
 function decorateHistory(entries){[...$('historyItems').querySelectorAll('.product')].forEach((card,index)=>{const row=entries[index],badge=card.querySelector('.history-state');if(!row||!badge)return;if(row.status==='detected'){badge.className='history-state detected';badge.textContent='Changed earlier';if(row.note){const note=document.createElement('div');note.className='subtle';note.textContent=row.note;card.appendChild(note)}}if(row.status==='success'||row.status==='detected'){const button=document.createElement('button');button.type='button';button.className='btn secondary reopen';button.dataset.id=String(row.product_id);button.textContent='Edit again';button.style.marginTop='12px';card.appendChild(button)}})}
 async function openHistory(){activeView='history';$('mainView').classList.add('hidden');$('draftsView').classList.add('hidden');$('historyView').classList.remove('hidden');$('publishBar').classList.add('hidden');$('historyItems').innerHTML='<div class="panel empty">Loading history…</div>';try{const result=await api('history');renderHistory(result.items);addHistoryCosts(result.items);decorateHistory(result.items)}catch(e){$('historyItems').innerHTML='<div class="status error">'+esc(e.message)+'</div>'}}
@@ -83,7 +92,101 @@ async function findProduct(){const skus=[...new Set($('barcode').value.split(/[\
 async function saveDraft(button){const id=button.dataset.id,input=document.querySelector('.pending-input[data-id="'+CSS.escape(id)+'"]');button.disabled=true;try{const out=await api('save-draft',{id,pending_price:input.value.trim()});items[String(out.item.id)]=out.item;render()}catch(e){message(e.message,'error')}finally{button.disabled=false}}
 async function saveDraftFromPage(button){const id=button.dataset.id,input=document.querySelector('.draft-price[data-id="'+CSS.escape(id)+'"]');button.disabled=true;try{const out=await api('save-draft',{id,pending_price:input.value.trim()});items[String(out.item.id)]=out.item;renderDrafts()}catch(e){message(e.message,'error')}finally{button.disabled=false}}
 async function suggestPrice(button){const id=button.dataset.id,input=document.querySelector('.cost-input[data-id="'+CSS.escape(id)+'"]'),cost=input?.value.trim()??'';if(cost===''){message('Enter your cost first. It is required for AI Suggest.','error');input?.focus();return}button.disabled=true;try{if(costTimers[id]){clearTimeout(costTimers[id]);delete costTimers[id]}if(costSaves[id]){try{await costSaves[id]}catch{}}await saveCostValue(id,cost);const out=await api('suggest-price',{id});items[String(out.item.id)]=out.item;render();message('Suggested price '+cash(out.item.pending_price)+' (25% below locked '+out.basis_type+') saved as a draft. Website unchanged.','ok')}catch(e){message(e.message,'error')}finally{button.disabled=false}}
-async function publish(){try{const latest=await api('list');items={};for(const row of latest.items)items[String(row.id)]=row;if(activeView==='drafts')renderDrafts();else render()}catch(e){message(e.message,'error');return}const ready=Object.values(items).filter(x=>x.pending_price!==null&&x.pending_price!==undefined).length;if(!ready)return;if(!confirm('Upload all '+ready+' saved sale price draft(s) to the live WooCommerce website now? Prices change immediately.'))return;$('publish').disabled=true;message('Uploading saved prices to WooCommerce…');try{await flushCostInputs();const out=await api('publish');for(const id of out.updated_ids)delete items[String(id)];for(const row of out.remaining)items[String(row.id)]=row;if(activeView==='drafts')renderDrafts();else render();message(out.message,out.failed?'error':'ok')}catch(e){message(e.message,'error')}finally{$('publish').disabled=false}}
+function applyProductSearch(){
+  const query=$('productSearch').value.trim().toLowerCase();
+  const target=$(activeView==='drafts'?'draftItems':activeView==='history'?'historyItems':'items');
+  const cards=[...target.querySelectorAll('.product')];let visible=0;
+  for(const card of cards){const match=!query||card.textContent.toLowerCase().includes(query);card.hidden=!match;if(match)visible++;}
+  $('searchResults').textContent=query?visible+' matching product(s) / '+cards.length:'';
+}
+function render(){renderContent();applyProductSearch();}
+function renderDrafts(){renderDraftsContent();applyProductSearch();}
+function renderHistory(entries){renderHistoryContent(entries);applyProductSearch();}
+function applyUploadSearch(){
+  const query=$('uploadSearch').value.trim().toLowerCase();
+  for(const row of $('uploadRows').children)row.hidden=!!query&&!row.textContent.toLowerCase().includes(query);
+}
+$('productSearch').addEventListener('input',applyProductSearch);
+$('uploadSearch').addEventListener('input',applyUploadSearch);
+function temporaryUploadError(error){
+  if(error.retryable===false)return false;
+  return error.retryable===true||error instanceof TypeError||/invalid response|network|failed to fetch|connection failed|timed? ?out|HTTP (408|425|429|500|502|503|504)/i.test(error.message);
+}
+async function publishWithRetry(id){
+  const delays=[5,10,20,30,60];
+  for(let attempt=0;;attempt++){
+    try{
+      $('uploadRetryStatus').textContent='';
+      const out=await api('publish',{ids:[id]});
+      if(out.failed&&temporaryUploadError(new Error(out.message))){const error=new Error(out.message);error.retryable=true;throw error;}
+      return out;
+    }catch(error){
+      if(!temporaryUploadError(error)||attempt>=delays.length)throw error;
+      for(let seconds=delays[attempt];seconds>0;seconds--){
+        uploadRowState(id,'Paused - retry '+(attempt+1)+' / '+delays.length,error.message,'#8a5700');
+        $('uploadRetryStatus').textContent='Server busy. Retrying this product in '+seconds+'s. Completed products will be skipped.';
+        await new Promise(resolve=>setTimeout(resolve,1000));
+      }
+      uploadRowState(id,'Retrying...','Checking the same saved draft.','#1769e0');
+    }
+  }
+}
+
+let publishing=false;
+window.addEventListener('beforeunload',event=>{if(publishing){event.preventDefault();event.returnValue=''}});
+function uploadRowState(id,label,detail='',color='#64748b'){
+  const row=$('upload-row-'+id);if(!row)return;
+  const state=row.querySelector('.upload-state');state.textContent=label;state.style.color=color;
+  const list=$('uploadRows');list.scrollTop=row.offsetTop-list.offsetTop;
+  row.querySelector('.upload-detail').textContent=detail;
+}
+async function publish(){
+  if(publishing)return;
+  publishing=true;$('publish').disabled=true;
+  let uploaded=0,processed=0,failed=0,currentId=null,started=false;
+  const summary=()=>{
+    $('uploadMeter').value=processed;
+    $('uploadSummary').textContent=processed+' / '+$('uploadMeter').max+' processed ? '+uploaded+' uploaded ? '+failed+' failed';
+  };
+  try{
+    await flushCostInputs();
+    const latest=await api('list');items={};for(const row of latest.items)items[String(row.id)]=row;
+    const queue=Object.values(items).filter(x=>x.pending_price!==null&&x.pending_price!==undefined);
+    if(!queue.length)return;
+    if(!confirm('Upload all '+queue.length+' saved sale price draft(s) to the live WooCommerce website now? Prices change immediately.'))return;
+    started=true;$('uploadProgress').classList.remove('hidden');
+    $('uploadMeter').max=queue.length;$('uploadMeter').value=0;
+    $('uploadRows').innerHTML=queue.map(row=>`<div id="upload-row-${esc(row.id)}" style="padding:12px 0;border-bottom:1px solid #e0e6ee"><strong>${esc(row.name||'Product')}</strong><div class="subtle">SKU: ${esc(row.sku||'?')} ? ID: ${esc(row.id)} ? Sale price: ${esc(row.pending_price===''?'Clear sale':cash(row.pending_price))}</div><b class="upload-state" style="color:#64748b">Waiting</b><div class="upload-detail subtle"></div></div>`).join('');
+    summary();applyUploadSearch();
+    for(const row of queue){
+      currentId=String(row.id);
+      uploadRowState(currentId,'Processing?','Saving price and checking Big Days Sale.','#1769e0');
+      const out=await publishWithRetry(currentId);
+      processed++;
+      if(out.updated_ids.map(String).includes(currentId)||((out.already_completed_ids||[]).map(String).includes(currentId))){
+        uploaded++;uploadRowState(currentId,'? Ho gaya ? Uploaded','Sale price saved; Big Days Sale checkbox verified. Already completed products are skipped.','#137447');
+      }else if(out.failed){
+        failed++;uploadRowState(currentId,'? Failed ? retry needed',out.message,'#b42318');
+      }else{
+        uploadRowState(currentId,'Skipped ? no pending draft','This request did not upload this product. Check History.','#8a5700');
+      }
+      items={};for(const remaining of out.remaining)items[String(remaining.id)]=remaining;
+      summary();currentId=null;
+      // One request at a time, with a short pause before the next product.
+      await new Promise(resolve=>setTimeout(resolve,800));
+    }
+    $('uploadSummary').textContent+=' ? Finished';
+    message(uploaded+' product(s) uploaded. '+failed+' failed; failed drafts remain for retry.',failed?'error':'ok');
+  }catch(e){
+    if(started){
+      if(currentId)uploadRowState(currentId,'? Result not confirmed',e.message+' Refresh and retry this saved draft.','#b42318');
+      for(const state of $('uploadRows').querySelectorAll('.upload-state'))if(state.textContent==='Waiting')state.textContent='Not started ? upload stopped';
+      summary();$('uploadSummary').textContent+=' ? Stopped';
+    }
+    message('Upload stopped after '+uploaded+' confirmed product(s). '+e.message+' Refresh and upload remaining drafts to continue.','error');
+  }finally{$('uploadRetryStatus').textContent='';publishing=false;if(activeView==='drafts')renderDrafts();else render()}
+}
+
 let stream=null, scanTimer=null;
 async function startScan(){if(!('BarcodeDetector'in window)){message('This browser does not support camera barcode scanning. Enter the SKU manually or use a recent Chrome on Android.','error');return}try{const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});$('video').srcObject=stream;$('video').classList.remove('hidden');$('scan').classList.add('hidden');$('stopScan').classList.remove('hidden');await $('video').play();scanTimer=setInterval(async()=>{if(!$('video').videoWidth)return;try{const found=await detector.detect($('video'));if(found.length){$('barcode').value=found[0].rawValue;stopScan();findProduct()}}catch{}},300)}catch(e){message('Could not open camera. Allow camera access and use the page over HTTPS.','error');stopScan()}}
 function stopScan(){if(scanTimer)clearInterval(scanTimer);scanTimer=null;if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('video').srcObject=null;$('video').classList.add('hidden');$('scan').classList.remove('hidden');$('stopScan').classList.add('hidden')}

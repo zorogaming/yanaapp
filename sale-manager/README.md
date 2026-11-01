@@ -21,7 +21,7 @@ If the host uses Nginx, `.htaccess` is ignored. Keep `config.php` out of the pub
 - **AI Suggest** requires a saved cost. It calculates 25% off the locked sale price, or locked regular price when no locked sale price exists, and auto-saves that amount as a draft; the live website is unchanged until **Upload Website** is pressed.
 - Scanned products are added to `drafts.json`. A blank new-price field means no update is staged; enter a price and press **Save draft**. Leaving the field blank and saving stages a sale-price clear.
 - Nothing is sent to WooCommerce until **Upload Website** is pressed and confirmed. Then only rows with saved drafts are sent. Successful rows are removed from the draft queue; failed rows remain for retry. Uploaded or already-changed items stay out of the main list; use **Edit again** in History to intentionally stage another change.
-- Every successfully uploaded simple product or variation's parent is assigned to the WooCommerce **Big Days Sale** category, preserving its existing categories. The category is created on the first upload if it does not already exist.
+- Every uploaded simple product or variation parent is marked with the Yana Sale **Big Days Sale** checkbox (`_yana_big_days_sale=yes`), verified before the sale price is written. The Yana Sale plugin and campaign settings control whether the collection is visible.
 - The **History** button shows each upload attempt with your saved cost, the first locked regular/sale prices, submitted sale price, time and success/failure result. History is saved in `history.json` and the newest 3,000 events are retained.
 - A click applies changes immediately. To launch later, wait until the launch time before pressing **Upload Website**. This tool does not schedule a future publish.
 
@@ -31,3 +31,5 @@ If the host uses Nginx, `.htaccess` is ignored. Keep `config.php` out of the pub
 - The `data_dir` location must be private and persistent. Back it up if the locked first-seen prices are important.
 - Sale dates and regular prices are not changed by this tool. It writes only the WooCommerce `sale_price` field.
 - Restrict access to the page and use a strong unique password. The API credentials have the same WooCommerce access as the account that created them.
+
+Uploads process one product per request and save progress after each product. Keep the page open until completion. Failed drafts remain for retry; after an interruption, refresh and upload the remaining drafts. Sale price responses are verified before recording success.

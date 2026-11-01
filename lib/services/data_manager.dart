@@ -17,12 +17,14 @@ class DataManager {
   static const String topBrandsNamesKey = "top_brands_names";
   static const String topBrandsVersionKey = "top_brands_version";
   static const String topBrandCategoriesKey = "top_brand_categories";
-  static const String topBrandCategoriesVersionKey = "top_brand_categories_version";
+  static const String topBrandCategoriesVersionKey =
+      "top_brand_categories_version";
   static const String newArrivalProductsKey = "new_arrival_products";
   static const String newArrivalProductsVersionKey =
       "new_arrival_products_version";
   static const String bestSellingProductsKey = "best_selling_products";
-  static const String bestSellingProductsVersionKey = "best_selling_products_version";
+  static const String bestSellingProductsVersionKey =
+      "best_selling_products_version";
   static const String productPriceSnapshotKey = "product_price_snapshot_v1";
   static const int homeLatestProductsLimit = 10;
   static const String bikeGarageSelectedKey = "bike_garage_selected_bike";
@@ -79,8 +81,9 @@ class DataManager {
         Uri.parse("https://yanaworldwide.store/Yanaapp/proc.txt"),
       );
 
-      String serverProcVersion =
-          procResponse.statusCode == 200 ? procResponse.body.trim() : "1";
+      String serverProcVersion = procResponse.statusCode == 200
+          ? procResponse.body.trim()
+          : "1";
 
       final annotatedData = await annotateProductsWithPriceDrops(freshData);
       await prefs.setString(homeProductsKey, jsonEncode(annotatedData));
@@ -406,7 +409,6 @@ class DataManager {
 
   String _categoryProductsKey(int categoryId) => "category_$categoryId";
 
-
   Future<Map<String, dynamic>> getSaleCollection(
     String collectionKey, {
     int page = 1,
@@ -422,7 +424,10 @@ class DataManager {
     final cacheKey = _saleCollectionCacheKey(normalizedKey);
     final versionKey = _saleCollectionVersionKey(normalizedKey);
     final cachedData = prefs.getString(cacheKey);
-    if (preferCache && cachedData != null && cachedData.isNotEmpty) {
+    if (page == 1 &&
+        preferCache &&
+        cachedData != null &&
+        cachedData.isNotEmpty) {
       final cachedPayload = _decodeSaleCollectionCache(cachedData);
       if (cachedPayload != null) {
         return cachedPayload;
@@ -448,11 +453,11 @@ class DataManager {
       return annotatedData;
     } catch (e) {
       print("Sale collection fetch error: $e");
-      if (cachedData != null && cachedData.isNotEmpty) {
+      if (page == 1 && cachedData != null && cachedData.isNotEmpty) {
         final cachedPayload = _decodeSaleCollectionCache(cachedData);
         if (cachedPayload != null) return cachedPayload;
       }
-      return const <String, dynamic>{"items": <dynamic>[]};
+      rethrow;
     }
   }
 
@@ -668,9 +673,7 @@ class DataManager {
     final normalized = raw.replaceAll("\r", "\n");
 
     for (final line in normalized.split("\n")) {
-      final value = line
-          .replaceAll(RegExp(r"^[\-\*\d\.\)\s]+"), "")
-          .trim();
+      final value = line.replaceAll(RegExp(r"^[\-\*\d\.\)\s]+"), "").trim();
       if (value.isEmpty) continue;
       if (value.startsWith("#")) continue;
       if (value.contains(":") && value.length < 25) continue;
@@ -720,7 +723,9 @@ class DataManager {
       if (id <= 0 || seenIds.contains(id)) continue;
       final name = (category["name"] ?? "").toString().toLowerCase();
       final slug = (category["slug"] ?? "").toString().toLowerCase();
-      final score = terms.where((term) => name.contains(term) || slug.contains(term)).length;
+      final score = terms
+          .where((term) => name.contains(term) || slug.contains(term))
+          .length;
       if (score <= 0) continue;
       matched.add(category);
       seenIds.add(id);
@@ -736,7 +741,8 @@ class DataManager {
   }) async {
     final categories = await getSuggestedCategoriesForBike(bikeName);
     if (categories.isNotEmpty) {
-      final categoryId = int.tryParse((categories.first["id"] ?? "").toString()) ?? 0;
+      final categoryId =
+          int.tryParse((categories.first["id"] ?? "").toString()) ?? 0;
       if (categoryId > 0) {
         return api.fetchProducts(perPage: limit, categoryId: categoryId);
       }
@@ -750,5 +756,3 @@ class DataManager {
     );
   }
 }
-
-
