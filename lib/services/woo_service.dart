@@ -925,33 +925,48 @@ class WooService {
   }
 
   // ================= FETCH VARIATIONS =================
-  Future<List> fetchVariations(int productId) async {
+  Future<List> fetchVariations(int productId, {bool allPages = false}) async {
     try {
       final ratesByClass = await _getTaxRatesByClass();
-      final response = await http
-          .get(
-            _buildUri("products/$productId/variations", {}),
-            headers: _wcHeaders(),
-          )
-          .timeout(const Duration(seconds: 20));
+      final result = <dynamic>[];
+      var page = 1;
+      while (true) {
+        final response = await http
+            .get(
+              _buildUri("products/$productId/variations", {
+                if (allPages) 'per_page': '100',
+                if (allPages) 'page': '$page',
+              }),
+              headers: _wcHeaders(),
+            )
+            .timeout(const Duration(seconds: 20));
 
-      if (response.statusCode == 200) {
-        final items = jsonDecode(response.body);
-        if (items is List) {
-          return items
-              .whereType<Map>()
-              .map(
-                (item) => _normalizeProductPricing(
-                  Map<String, dynamic>.from(item),
-                  ratesByClass,
-                ),
-              )
-              .toList();
+        if (response.statusCode == 200) {
+          final items = jsonDecode(utf8.decode(response.bodyBytes).replaceFirst('\uFEFF', ''));
+          if (items is List) {
+            result.addAll(
+              items
+                  .whereType<Map>()
+                  .map(
+                    (item) => _normalizeProductPricing(
+                      Map<String, dynamic>.from(item),
+                      ratesByClass,
+                    ),
+                  )
+                  .toList(),
+            );
+            if (!allPages || items.length < 100) return result;
+            page++;
+            continue;
+          }
         }
-      }
 
-      return [];
+        if (allPages)
+          throw StateError('Could not load sale variations for $productId');
+        return [];
+      }
     } catch (e) {
+      if (allPages) rethrow;
       print("Variation Exception: $e");
       return [];
     }
@@ -2378,7 +2393,7 @@ class WooService {
         return const <Map<String, dynamic>>[];
       }
 
-      final decoded = jsonDecode(response.body);
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes).replaceFirst('\uFEFF', ''));
       if (decoded is! List) return const <Map<String, dynamic>>[];
 
       final byId = <int, Map<String, dynamic>>{};
@@ -2426,7 +2441,7 @@ class WooService {
         );
       }
 
-      final decoded = jsonDecode(response.body);
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes).replaceFirst('\uFEFF', ''));
       if (decoded is! Map) {
         throw const FormatException("Sale collection response format invalid");
       }

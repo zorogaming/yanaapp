@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../models/product_model.dart';
@@ -27,6 +29,12 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
   int _totalProducts = 0;
   List<Product> _products = [];
   final Map<int, List<Map<String, dynamic>>> _productCategories = {};
+  final TextEditingController _searchController = TextEditingController();
+  final Map<int, List<Map<String, dynamic>>> _variations = {};
+  final Map<int, String> _searchText = {};
+  final Random _promotionRandom = Random();
+  final Map<int, int?> _checkoutPromotions = {};
+  String _searchQuery = '';
   bool _isLoading = true;
   bool _isLoadingMore = false;
   int _page = 0;
@@ -60,6 +68,7 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -114,6 +123,28 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
             .map((category) => Map<String, dynamic>.from(category))
             .toList(growable: false);
       }
+      final variations = <int, List<Map<String, dynamic>>>{};
+      if (widget.collectionKey == 'big_days_sale') {
+        final variableProducts = parsed
+            .where((p) => p.type == 'variable')
+            .toList();
+        // Limit parallel requests while fetching every variation, including SKUs
+        // beyond WooCommerce's default first page.
+        for (var offset = 0; offset < variableProducts.length; offset += 4) {
+          await Future.wait(
+            variableProducts.skip(offset).take(4).map((product) async {
+              final rows = await WooService().fetchVariations(
+                product.id,
+                allPages: true,
+              );
+              variations[product.id] = rows
+                  .whereType<Map>()
+                  .map((row) => Map<String, dynamic>.from(row))
+                  .toList();
+            }),
+          );
+        }
+      }
       final enabled = payload["enabled"] != false;
       final message = payload["message"]?.toString();
 
@@ -127,6 +158,18 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
             : parsed;
         if (!loadMore) _productCategories.clear();
         _productCategories.addAll(categoriesByProduct);
+        if (!loadMore) {
+          _variations.clear();
+          _searchText.clear();
+        }
+        _variations.addAll(variations);
+        for (final raw in [
+          ...rawItems.whereType<Map>(),
+          ...categoryProducts.whereType<Map>(),
+        ]) {
+          final id = int.tryParse('${raw['id']}') ?? 0;
+          _searchText[id] = '${_searchText[id] ?? ''} ${_searchable(raw)}';
+        }
         _page = requestedPage;
         _totalProducts =
             int.tryParse('${payload["total"]}') ?? _products.length;
@@ -139,7 +182,12 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
         _errorMessage = enabled ? null : (message ?? "This sale is disabled.");
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _loadNearBottom();
+        if (!mounted) return;
+        if (_searchQuery.isNotEmpty && _hasMore) {
+          _loadProducts(loadMore: true);
+        } else {
+          _loadNearBottom();
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -166,6 +214,100 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
         image.isNotEmpty && image.toLowerCase().startsWith("http");
     final price = double.tryParse(product.price.replaceAll(",", "").trim());
     return hasValidImage && price != null && price > 0;
+  }
+
+  String _searchable(dynamic value) {
+    if (value is Map)
+      return value.values.map(_searchable).join(' ').toLowerCase();
+    if (value is List) return value.map(_searchable).join(' ').toLowerCase();
+    return (value ?? '').toString().toLowerCase();
+  }
+
+  bool _isDiscounted(Map<String, dynamic> variation) {
+    final regular = double.tryParse('${variation['regular_price']}') ?? 0;
+    final sale = double.tryParse('${variation['sale_price']}');
+    final current = double.tryParse('${variation['price']}');
+    return sale != null &&
+        sale >= 0 &&
+        regular > sale &&
+        current != null &&
+        (current - sale).abs() < 0.01;
+  }
+
+  Widget _variationOffers(Product product, AppThemePalette palette) {
+    final offers = (_variations[product.id] ?? [])
+        .where(_isDiscounted)
+        .toList();
+    if (offers.isEmpty) return const SizedBox.shrink();
+    return Container(
+      color: palette.surface,
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Discount available on',
+            style: TextStyle(
+              color: palette.accent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          ...offers.map((row) {
+            final attributes = (row['attributes'] as List? ?? [])
+                .whereType<Map>()
+                .map((a) => '${a['name']}: ${a['option']}')
+                .join(' · ');
+            final sku = (row['sku'] ?? '').toString();
+            return Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                [
+                  attributes.isEmpty ? 'Variation #${row['id']}' : attributes,
+                  if (sku.isNotEmpty) 'SKU: $sku',
+                  '₹${row['sale_price']} (was ₹${row['regular_price']})',
+                  if (row['stock_status'] == 'outofstock') 'Out of stock',
+                ].join(' · '),
+                style: TextStyle(color: palette.textPrimary, fontSize: 12),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _checkoutPromotion(Product product, AppThemePalette palette) {
+    // Promotional display values, not measured checkout activity. Keep each
+    // product's value stable while this sale screen remains open.
+    final count = _checkoutPromotions.putIfAbsent(
+      product.id,
+      () => _promotionRandom.nextInt(4) == 0
+          ? null
+          : _promotionRandom.nextInt(8) + 1,
+    );
+    if (count == null) return const SizedBox.shrink();
+    return Container(
+      color: palette.surface,
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      child: Row(
+        children: [
+          Icon(Icons.shopping_bag_outlined, size: 16, color: palette.accent),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              count == 1
+                  ? '1 person is checking out with this item'
+                  : '$count people are checking out with this item',
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String get _badgeLabel {
@@ -224,6 +366,14 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
 
   List<Product> get _visibleProducts {
     final products = _productsWithSaleBadge.where((product) {
+      if (_searchQuery.isNotEmpty) {
+        final text =
+            '${product.name} ${product.sku} ${product.id} '
+                    '${_searchText[product.id] ?? ''} ${_searchable(_variations[product.id])}'
+                .toLowerCase();
+        if (!_searchQuery.split(RegExp(r'\s+')).every(text.contains))
+          return false;
+      }
       if (_selectedCategoryId == null) return true;
       final raw = _products.firstWhere((item) => item.id == product.id);
       final categories = _productCategories[raw.id] ?? const [];
@@ -420,6 +570,10 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
                               product: product,
                               badgeLabel: _badgeLabel,
                             ),
+                            if (widget.collectionKey == 'big_days_sale')
+                              _variationOffers(product, palette),
+                            if (widget.collectionKey == 'big_days_sale')
+                              _checkoutPromotion(product, palette),
                             const Divider(height: 1),
                           ],
                         );
@@ -461,6 +615,49 @@ class _SaleProductsScreenState extends State<SaleProductsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            '${(_collectionLabel ?? widget.title).trim()}: No returns, refunds or exchanges.',
+            style: TextStyle(
+              color: palette.textMuted,
+              fontSize: 10,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _searchController,
+            onChanged: (value) {
+              setState(() => _searchQuery = value.trim().toLowerCase());
+              if (_searchQuery.isNotEmpty && _hasMore && !_isLoadingMore) {
+                _loadProducts(loadMore: true);
+              }
+            },
+            decoration: InputDecoration(
+              hintText: 'Search sale: name, barcode, SKU, color...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchQuery.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          if (_searchQuery.isNotEmpty && _hasMore)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _loadMoreError ?? 'Searching more sale products...',
+                style: TextStyle(color: palette.textMuted, fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Icon(Icons.tune_rounded, size: 15, color: palette.accent),
